@@ -3,6 +3,7 @@
             [applied-science.js-interop :as j]
             [clojure.string :as str]
             [nextjournal.clojure-mode.extensions.eval-region :as eval-region]
+            [nextjournal.clerk.sci-env]
             [sci.core :as sci]
             [sci.ctx-store]))
 

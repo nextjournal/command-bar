@@ -10,3 +10,5 @@
             [nextjournal.clojure-mode.keymap :as keymap]
             [nextjournal.clojure-mode.node :as n]
             [nextjournal.clojure-mode.test-utils :as test-utils]))
+
+(defonce bindings (atom {}))

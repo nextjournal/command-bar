@@ -1,160 +1,136 @@
 (ns nextjournal.command-bar.demo
   (:require ["@codemirror/commands" :refer [history historyKeymap]]
-            ["@codemirror/language" :refer [foldGutter syntaxHighlighting defaultHighlightStyle]]
-            ["@codemirror/state" :refer [EditorState]]
+            ["@codemirror/language" :refer [syntaxHighlighting HighlightStyle]]
+            ["@codemirror/state" :refer [Compartment EditorState]]
             ["@codemirror/view" :as view :refer [EditorView]]
+            ["@lezer/highlight" :refer [tags]]
             ["react" :as react]
+            ["react-dom/client" :as react-client]
             [applied-science.js-interop :as j]
             [clojure.string :as str]
+            [nextjournal.command-bar :as command-bar]
             [nextjournal.command-bar.demo.sci :as demo.sci]
             [nextjournal.clerk.render :as render]
+            [nextjournal.clerk.render.hooks :as hooks]
             [nextjournal.clerk.viewer :as v]
-            [nextjournal.clojure-mode :as cm-clj]
+            [nextjournal.clojure-mode :as clojure-mode]
             [nextjournal.clojure-mode.extensions.eval-region :as eval-region]
             [nextjournal.clojure-mode.keymap :as keymap]
             [nextjournal.clojure-mode.test-utils :as test-utils]
             [reagent.core :as r]
-            [reagent.dom :as rdom]
             [shadow.resource :as rc]))
+
+(def highlight-style
+  (.define HighlightStyle
+           (clj->js [{:tag (.-meta tags) :class "cmt-meta"}
+                     {:tag (.-link tags) :class "cmt-link"}
+                     {:tag (.-heading tags) :class "cmt-heading"}
+                     {:tag (.-emphasis tags) :class "cmt-italic"}
+                     {:tag (.-strong tags) :class "cmt-strong"}
+                     {:tag (.-strikethrough tags) :class "cmt-strikethrough"}
+                     {:tag (.-keyword tags) :class "cmt-keyword"}
+                     {:tag (.-atom tags) :class "cmt-atom"}
+                     {:tag (.-bool tags) :class "cmt-bool"}
+                     {:tag (.-url tags) :class "cmt-url"}
+                     {:tag (.-contentSeparator tags) :class "cmt-contentSeparator"}
+                     {:tag (.-labelName tags) :class "cmt-labelName"}
+                     {:tag (.-literal tags) :class "cmt-literal"}
+                     {:tag (.-inserted tags) :class "cmt-inserted"}
+                     {:tag (.-string tags) :class "cmt-string"}
+                     {:tag (.-deleted tags) :class "cmt-deleted"}
+                     {:tag (.-regexp tags) :class "cmt-regexp"}
+                     {:tag (.-escape tags) :class "cmt-escape"}
+                     {:tag (.. tags (special (.-string tags))) :class "cmt-string"}
+                     {:tag (.. tags (definition (.-variableName tags))) :class "cmt-variableName"}
+                     {:tag (.. tags (local (.-variableName tags))) :class "cmt-variableName"}
+                     {:tag (.-typeName tags) :class "cmt-typeName"}
+                     {:tag (.-namespace tags) :class "cmt-namespace"}
+                     {:tag (.-className tags) :class "cmt-className"}
+                     {:tag (.. tags (special (.-variableName tags))) :class "cmt-variableName"}
+                     {:tag (.-macroName tags) :class "cmt-macroName"}
+                     {:tag (.. tags (definition (.-propertyName tags))) :class "cmt-propertyName"}
+                     {:tag (.-comment tags) :class "cmt-comment"}
+                     {:tag (.-invalid tags) :class "cmt-invalid"}])))
 
 (def theme
   (.theme EditorView
-          (j/lit {".cm-content" {:white-space "pre-wrap"
-                                 :padding "10px 0"
-                                 :flex "1 1 0"}
-
-                  "&.cm-focused" {:outline "0 !important"}
-                  ".cm-line" {:padding "0 9px"
+          (j/lit {"&.cm-focused" {:outline "none"}
+                  ".cm-line" {:padding "0"
                               :line-height "1.6"
-                              :font-size "16px"
-                              :font-family "var(--code-font)"}
-                  ".cm-matchingBracket" {:border-bottom "1px solid var(--teal-color)"
-                                         :color "inherit"}
-                  ".cm-gutters" {:background "transparent"
-                                 :border "none"}
-                  ".cm-gutterElement" {:margin-left "5px"}
-                  ;; only show cursor when focused
+                              :font-size "15px"
+                              :font-family "\"Fira Mono\", monospace"}
                   ".cm-cursor" {:visibility "hidden"}
-                  "&.cm-focused .cm-cursor" {:visibility "visible"}})))
+                  "&.cm-focused .cm-cursor" {:visibility "visible"
+                                             :animation "steps(1) cm-blink 1.2s infinite"}
+                  "&.cm-focused .cm-selectionBackground" {:background-color "Highlight"}
+                  ".cm-tooltip" {:border "1px solid rgba(0,0,0,.1)"
+                                 :border-radius "3px"
+                                 :overflow "hidden"}
+                  ".cm-tooltip > ul > li" {:padding "3px 10px 3px 0 !important"}
+                  ".cm-tooltip > ul > li:first-child" {:border-top-left-radius "3px"
+                                                       :border-top-right-radius "3px"}
+                  ".cm-tooltip.cm-tooltip-autocomplete" {:border "0"
+                                                         :border-radius "6px"
+                                                         :box-shadow "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)"
+                                                         "& > ul" {:font-size "12px"
+                                                                   :font-family "'Fira Code', monospace"
+                                                                   :background "rgb(241 245 249)"
+                                                                   :border "1px solid rgb(203 213 225)"
+                                                                   :border-radius "6px"}}
+                  ".cm-tooltip-autocomplete ul li[aria-selected]" {:background "rgb(79 70 229)"
+                                                                   :color "#fff"}
+                  ".cm-matchingBracket" {:border-bottom "1px solid var(--teal-color)"
+                                         :color "inherit"}})))
 
-(defonce extensions #js[theme
-                        (history)
-                        (syntaxHighlighting defaultHighlightStyle)
-                        (view/drawSelection)
-                        (foldGutter)
-                        (.. EditorState -allowMultipleSelections (of true))
-                        (.of view/keymap cm-clj/complete-keymap)
-                        (.of view/keymap historyKeymap)])
+(defn editor [{:keys [on-result on-reset-result source] :or {on-result #() on-reset-result #()}}]
+  (let [!el (hooks/use-ref nil)
+        !view (atom nil)]
+    (hooks/use-effect
+     (fn []
+       (reset! !view (new EditorView
+                          (j/obj :state
+                                 (test-utils/make-state
+                                  #js [theme
+                                       (history)
+                                       clojure-mode/default-extensions
+                                       (syntaxHighlighting highlight-style)
+                                       (eval-region/extension {:modifier "Meta"})
+                                       (demo.sci/extension {:modifier "Meta" :on-result on-result})
+                                       (view/drawSelection)
+                                       (.of view/keymap clojure-mode/complete-keymap)
+                                       (.of view/keymap historyKeymap)
+                                       (.. EditorState -transactionExtender
+                                           (of (fn [^js tr]
+                                                 (when (.-selection tr)
+                                                   (on-reset-result))
+                                                 #js {})))]
+                                  source)
+                                 :parent @!el)))
+       (fn []
+         (j/call @!view :destroy)
+         (reset! !view nil))))
+    [:div.w-full.h-full.font-mono {:ref !el}]))
 
-
-(defn editor [source {:keys [eval?]}]
-  (r/with-let [!view (r/atom nil)
-               last-result (when eval? (r/atom (demo.sci/eval-string source)))
-               mount! (fn [el]
-                        (when el
-                          (reset! !view (new EditorView
-                                             (j/obj :state
-                                                    (test-utils/make-state
-                                                     (cond-> #js [extensions]
-                                                       eval? (.concat #js [(eval-region/extension {:modifier "Alt"})
-                                                                           (demo.sci/extension {:modifier "Alt"
-                                                                                                :on-result (partial reset! last-result)})]))
-                                                     source)
-                                                    :parent el)))))]
+(defn root []
+  (let [!last-result (hooks/use-state nil)]
     [:div
-     [:div {:class "rounded-md mb-0 text-sm monospace overflow-auto relative border shadow-lg bg-white"
-            :ref mount!
-            :style {:max-height 410}}]
-     (when eval?
-       [:div.mt-3.mv-4.pl-6 {:style {:white-space "pre-wrap" :font-family "var(--code-font)"}}
-        (when-some [{:keys [error result]} @last-result]
-          (cond
-            error [:div.red error]
-            (render/valid-react-element? result) result
-            'else (render/inspect result)))])]
-    (finally
-      (j/call @!view :destroy))))
+     [:div.absolute.left-0.top-0.w-full.bg-slate-200.p-4
+      {:class "bottom-[24px]"}
+      [editor {:source "(+ 1 1)"
+               :on-result #(reset! !last-result %)
+               :on-reset-result #(reset! !last-result nil)}]]
+     [:div.absolute.left-0.bottom-0.w-full
+      (when-some [{:keys [error result]} @!last-result]
+        [:div.bg-white.border-t.border-slate-300.p-3
+         (cond
+           error [:div.red error]
+           (render/valid-react-element? result) result
+           'else (render/inspect result))])
+      [:div.bg-slate-950.px-4 {:class "h-[26px]"}]]]))
 
-;;  Markdown editors
-(defn markdown-editor [{:keys [doc extensions]}]
-  [:div {:ref (fn [^js el]
-                (when el
-                  (some-> el .-editorView .destroy)
-                  (j/assoc! el :editorView
-                            (EditorView. (j/obj :parent el
-                                                :state (.create EditorState
-                                                                (j/obj :doc (str/trim doc)
-                                                                       :extensions (into-array
-                                                                                    (cond-> [(syntaxHighlighting defaultHighlightStyle)
-                                                                                             (foldGutter)
-                                                                                             (.of view/keymap cm-clj/complete-keymap)
-                                                                                             (history)
-                                                                                             (.of view/keymap historyKeymap)
-                                                                                             theme]
-                                                                                      (seq extensions)
-                                                                                      (concat extensions))))))))))}])
-
-(defn samples []
-  (into [:<>]
-        (for [source ["(comment
-  (fizz-buzz 1)
-  (fizz-buzz 3)
-  (fizz-buzz 5)
-  (fizz-buzz 15)
-  (fizz-buzz 17)
-  (fizz-buzz 42))
-
-(defn fizz-buzz [n]
-  (condp (fn [a b] (zero? (mod b a))) n
-    15 \"fizzbuzz\"
-    3  \"fizz\"
-    5  \"buzz\"
-    n))"]]
-          [editor source {:eval? true}])))
-
-(defn linux? []
-  (some? (re-find #"(Linux)|(X11)" js/navigator.userAgent)))
-
-(defn mac? []
-  (and (not (linux?))
-       (some? (re-find #"(Mac)|(iPhone)|(iPad)|(iPod)" js/navigator.platform))))
-
-(defn key-mapping []
-  (cond-> {"ArrowUp" "↑"
-           "ArrowDown" "↓"
-           "ArrowRight" "→"
-           "ArrowLeft" "←"
-           "Mod" "Ctrl"}
-    (mac?)
-    (merge {"Alt" "⌥"
-            "Shift" "⇧"
-            "Enter" "⏎"
-            "Ctrl" "⌃"
-            "Mod" "⌘"})))
-
-(defn render-key [key]
-  (let [keys (into [] (map #(get ((memoize key-mapping)) % %) (str/split key #"-")))]
-    (into [:span]
-          (map-indexed (fn [i k]
-                         [:<>
-                          (when-not (zero? i) [:span " + "])
-                          [:kbd.kbd k]]) keys))))
-
+(defonce react-root
+  (react-client/createRoot (js/document.getElementById "root")))
 
 (defn ^:dev/after-load render []
-  (rdom/render [samples] (js/document.getElementById "editor"))
-  (.. (js/document.querySelectorAll "[clojure-mode]")
-      (forEach #(when-not (.-firstElementChild %)
-                  (rdom/render [editor (str/trim (.-innerHTML %))] %)))))
-
-#_(comment
-    (let [ctx' (sci.core/fork @sv/!sci-ctx)
-          ctx'' (sci.core/merge-opts ctx' {:namespaces {'foo {'bar "ahoi"}}})]
-
-      (demo.sci/eval-string ctx'' "(def o (j/assoc! #js {:a 1} :b 2))")
-      (demo.sci/eval-string ctx'' "(j/lookup (j/assoc! #js {:a 1} :b 2))")
-      (demo.sci/eval-string ctx'' "(j/get o :b)")
-      (demo.sci/eval-string ctx'' "(into-array [1 2 3])")
-
-      ;; this is not evaluable as-is in sci
-      (demo.sci/eval-string ctx'' "(j/let [^:js {:keys [a b]} o] (map inc [a b]))")))
+  (when react-root
+    (.render react-root (r/as-element [root]))))
