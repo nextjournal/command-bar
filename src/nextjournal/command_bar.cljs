@@ -1,20 +1,9 @@
 (ns nextjournal.command-bar
-  (:require ["@lezer/highlight" :as highlight :refer [tags]]
-            ["@codemirror/state" :refer [StateField]]
+  (:require ["@codemirror/state" :refer [StateField]]
             ["@codemirror/view" :refer [keymap]]
-            ["@codemirror/language" :as language :refer [LRLanguage LanguageSupport]]
-            ["@nextjournal/lezer-clojure" :as lezer-clj]
-            ["w3c-keyname" :refer [keyName]]
             [applied-science.js-interop :as j]
             [clojure.string :as str]
             [nextjournal.clerk.render.hooks :as hooks]
-            [nextjournal.clojure-mode.extensions.close-brackets :as close-brackets]
-            [nextjournal.clojure-mode.extensions.match-brackets :as match-brackets]
-            [nextjournal.clojure-mode.extensions.formatting :as format]
-            [nextjournal.clojure-mode.extensions.selection-history :as sel-history]
-            [nextjournal.clojure-mode.keymap :as keymap]
-            [nextjournal.clojure-mode.node :as n]
-            [nextjournal.clojure-mode.test-utils :as test-utils]
             [reagent.core :as reagent]))
 
 (defonce !bindings (reagent/atom []))
@@ -100,7 +89,7 @@
      {:ref !el :class "h-[26px]"}
      (if @!focus?
        [:<>
-        [:input.bg-transparent.font-inter.text-white.focus:outline-none
+        [:input.bg-transparent.font-inter.text-white.focus:outline-none.pr-1.border-r.mr-3.border-slate-600
          {:autoFocus true
           :class "text-[12px]"
           :type "text"
