@@ -1,0 +1,12 @@
+{:paths ["src" "demo"]
+ :deps {applied-science/js-interop {:mvn/version "0.3.3"}
+        org.clojure/clojure {:mvn/version "1.10.3"}
+        org.clojure/clojurescript {:mvn/version "1.10.866"}
+        reagent/reagent {:mvn/version "1.1.1"}
+        io.github.nextjournal/clerk {:git/sha "db59af18a15aa807c947d34d85f83aa750c1ebd6"}
+        io.github.nextjournal/clerk.render {:git/url "https://github.com/nextjournal/clerk"
+                                            :git/sha "db59af18a15aa807c947d34d85f83aa750c1ebd6"
+                                            :deps/root "render"}}
+ :aliases {:dev {:extra-deps {thheller/shadow-cljs {:mvn/version "2.14.4"}}}
+           :demo {:extra-paths ["demo/src"]
+                  :jvm-opts ["-Dpolyglot.engine.WarnInterpreterOnly=false"]}}}
