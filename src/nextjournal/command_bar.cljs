@@ -21,36 +21,28 @@
 (defonce !global-bindings (reagent/atom []))
 (defonce !codemirror-bindings (reagent/atom []))
 
-(defn global-unset-key! [keybinding f]
+(defn global-unset-key! [keybinding]
   (swap! !global-bindings (fn [bindings]
                             (remove #(= keybinding (j/get % :key)) bindings))))
 
 (defn global-set-key! [keybinding f]
   (swap! !global-bindings conj #js {:key keybinding :run f}))
 
-(defn get-bindings [^js state]
+(defn get-global-binding [key]
+  (first (filter #(= key (j/get % :key)) @!global-bindings)))
+
+(defn get-codemirror-bindings [^js state]
   (.filter
    (.flat (.facet state keymap))
    (fn [binding]
      (let [{:keys [key mac run]} (j/lookup binding)]
-       (and (or key mac) run)))))
-
-(defn get-global-binding [key]
-  (first (filter #(= key (j/get % :key)) @!global-bindings)))
+       (and (or key mac) run (.-name run)))))) ;; TODO: removing everything that doesn't have a fn name for now. Let's revisit.
 
 (def extension
   (.-extension (.define StateField
-                        (j/lit {:create #(reset! !bindings (get-bindings %))
+                        (j/lit {:create #(reset! !codemirror-bindings (get-codemirror-bindings %))
                                 :update (fn [_value tr]
-                                          #(reset! !bindings (get-bindings (.-state tr))))}))))
-
-(defn cmd-view [binding]
-  (let [{:keys [key mac run]} (j/lookup binding)
-        fn-name (.-name run)]
-    [:div.flex.items-center.flex-shrink-0.font-inter.gap-1.text-white
-     {:class "text-[12px]"}
-     [:div (if (str/blank? fn-name) "Unnamed" fn-name)]
-     [:div.text-slate-300 (or key mac)]]))
+                                          #(reset! !codemirror-bindings (get-codemirror-bindings (.-state tr))))}))))
 
 (defonce modifiers #{"Alt" "Control" "Meta" "Shift"})
 
@@ -75,24 +67,48 @@
        (.addEventListener js/document "keypress" handle-global-key)
        #(.removeEventListener js/document "keypress" handle-global-key)))))
 
+(defn use-watches []
+  (hooks/use-effect (fn []
+                      (let [reset-bindings! #(reset! !bindings (concat @!global-bindings @!codemirror-bindings))]
+                        (add-watch !global-bindings :global reset-bindings!)
+                        (add-watch !codemirror-bindings :codemirror reset-bindings!)
+                        #(do (remove-watch !global-bindings :global)
+                             (remove-watch !codemirror-bindings :codemirror))))))
+
+(defn get-fn-name [f]
+  (-> (str/split (.-name f) #"\$[_]") last (str/replace #"_" "-")))
+
+(defn cmd-view [binding]
+  (let [{:keys [key mac run]} (j/lookup binding)
+        fn-name (.-name run)]
+    [:div.flex.items-center.flex-shrink-0.font-inter.gap-1.text-white
+     {:class "text-[12px]"}
+     [:div (get-fn-name run)]
+     [:div.text-slate-300 (or key mac)]]))
+
 (defn view []
   (let [!el (hooks/use-ref nil)
         !focus? (hooks/use-state false)]
     (use-global-keybindings)
+    (use-watches)
     (hooks/use-effect (fn []
                         (let [toggle-command-bar (fn toggle-command-bar []
                                                    (swap! !focus? not))]
                           (global-set-key! "Alt-x" toggle-command-bar)
-                          #(global-unset-key! "Alt-x" toggle-command-bar))))
+                          #(global-unset-key! "Alt-x"))))
     [:div.bg-slate-950.px-4.overflow-x-auto.flex.items-center
      {:ref !el :class "h-[26px]"}
      (if @!focus?
        [:<>
-        [:input.bg-transparent {:type "text"
-                                :placeholder "Search for commands"}]
+        [:input.bg-transparent.font-inter.text-white.focus:outline-none
+         {:autoFocus true
+          :class "text-[12px]"
+          :type "text"
+          :placeholder "Search for commands"}]
         (into [:div.flex.items-center.gap-3]
               (map cmd-view)
               @!bindings)]
        [:div.text-slate-300 {:class "text-[12px]"}
-        [cmd-view (get-global-binding "Alt-x")]])]))
+        (when-let [binding (get-global-binding "Alt-x")]
+          [cmd-view binding])])]))
 
