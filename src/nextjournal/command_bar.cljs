@@ -4,6 +4,7 @@
             [applied-science.js-interop :as j]
             [clojure.string :as str]
             [nextjournal.clerk.render.hooks :as hooks]
+            [nextjournal.command-bar.fuzzy :as fuzzy]
             [reagent.core :as reagent]))
 
 (defonce !bindings (reagent/atom []))
@@ -77,7 +78,8 @@
 
 (defn view []
   (let [!el (hooks/use-ref nil)
-        !focus? (hooks/use-state false)]
+        !focus? (hooks/use-state false)
+        !query (hooks/use-state nil)]
     (use-global-keybindings)
     (use-watches)
     (hooks/use-effect (fn []
@@ -89,14 +91,21 @@
      {:ref !el :class "h-[26px]"}
      (if @!focus?
        [:<>
-        [:input.bg-transparent.font-inter.text-white.focus:outline-none.pr-1.border-r.mr-3.border-slate-600
-         {:autoFocus true
-          :class "text-[12px]"
-          :type "text"
-          :placeholder "Search for commands"}]
+        (let [placeholder "Search for commands…"]
+          [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
+           [:div.whitespace-no-wrap.font-inter.pointer-events-none
+            {:class "text-[12px]"}
+            (if (str/blank? @!query) placeholder @!query)]
+           [:input.bg-transparent.font-inter.text-white.focus:outline-none.absolute.left-0.top-0.w-full.h-full
+            {:autoFocus true
+             :on-input #(reset! !query (.. % -target -value))
+             :on-blur #(reset! !query nil)
+             :class "text-[12px]"
+             :type "text"
+             :placeholder placeholder}]])
         (into [:div.flex.items-center.gap-3]
               (map cmd-view)
-              @!bindings)]
+              (fuzzy/search @!bindings #(get-fn-name (j/get % :run)) (or @!query "")))]
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-global-binding "Alt-x")]
           [cmd-view binding])])]))
