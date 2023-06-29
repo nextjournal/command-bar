@@ -49,7 +49,7 @@
                          on-result]}]
   (.of view/keymap
        (j/lit
-        [{:key "Mod-Enter"
+        [{:key "Meta-Enter"
           :run (partial eval-cell on-result)}
          {:key (str modifier "-Enter")
           :shift (partial eval-top-level on-result)

@@ -68,13 +68,32 @@
 (defn get-fn-name [f]
   (-> (str/split (.-name f) #"\$[_]") last (str/replace #"_" "-")))
 
+(defn get-pretty-key [key]
+  (->> (str/split key #"-")
+       (map (fn [k]
+              ;; TODO: Investigate why Cmd/Meta/Mod and Control/Ctrl are not unified
+              (get {"Alt" "⌥"
+                    "Control" "^"
+                    "Ctrl" "^"
+                    "Shift" "⇧"
+                    "Cmd" "⌘"
+                    "Meta" "⌘"
+                    "Mod" "⌘"
+                    "ArrowLeft" "←"
+                    "ArrowRight" "→"
+                    "ArrowUp" "↑"
+                    "ArrowDown" "↓"
+                    "Backspace" "⌫"
+                    "Enter" "↩"} k (str/upper-case k))))
+       (str/join " ")))
+
 (defn cmd-view [binding]
   (let [{:keys [key mac run]} (j/lookup binding)
         fn-name (.-name run)]
-    [:div.flex.items-center.flex-shrink-0.font-inter.gap-1.text-white
+    [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.text-white
      {:class "text-[12px]"}
      [:div (get-fn-name run)]
-     [:div.text-slate-300 (or key mac)]]))
+     [:div.text-slate-300.font-inter (get-pretty-key (or key mac))]]))
 
 (defn view []
   (let [!el (hooks/use-ref nil)
@@ -83,20 +102,18 @@
     (use-global-keybindings)
     (use-watches)
     (hooks/use-effect (fn []
-                        (let [toggle-command-bar (fn toggle-command-bar []
-                                                   (swap! !focus? not))]
-                          (global-set-key! "Alt-x" toggle-command-bar)
-                          #(global-unset-key! "Alt-x"))))
+                        (global-set-key! "Alt-x" (fn toggle-command-bar [] (swap! !focus? not)))
+                        #(global-unset-key! "Alt-x")))
     [:div.bg-slate-950.px-4.overflow-x-auto.flex.items-center
      {:ref !el :class "h-[26px]"}
      (if @!focus?
        [:<>
         (let [placeholder "Search for commands…"]
           [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
-           [:div.whitespace-no-wrap.font-inter.pointer-events-none
+           [:div.whitespace-no-wrap.font-mono.pointer-events-none
             {:class "text-[12px]"}
             (if (str/blank? @!query) placeholder @!query)]
-           [:input.bg-transparent.font-inter.text-white.focus:outline-none.absolute.left-0.top-0.w-full.h-full
+           [:input.bg-transparent.font-mono.text-white.focus:outline-none.absolute.left-0.top-0.w-full.h-full
             {:autoFocus true
              :on-input #(reset! !query (.. % -target -value))
              :on-blur #(reset! !query nil)
@@ -109,4 +126,3 @@
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-global-binding "Alt-x")]
           [cmd-view binding])])]))
-
