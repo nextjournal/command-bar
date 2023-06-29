@@ -114,22 +114,6 @@
          (reset! !view nil))))
     [:div.w-full.h-full.font-mono {:ref !el}]))
 
-(defn cmd-view [binding]
-  (let [{:keys [key mac run]} (j/lookup binding)
-        fn-name (.-name run)]
-    [:div.flex.items-center.flex-shrink-0.font-inter.gap-1.text-white
-     {:class "text-[12px]"}
-     [:div (if (str/blank? fn-name) "Unnamed" fn-name)]
-     [:div.text-slate-300 (or key mac)]]))
-
-(defn mx-view []
-  (let [!el (hooks/use-ref nil)]
-    [:div.bg-slate-950.px-4.overflow-x-auto.flex.items-center
-     {:ref !el :class "h-[26px]"}
-     (into [:div.flex.items-center.gap-3]
-           (map cmd-view)
-           @command-bar/!bindings)]))
-
 (defn root []
   (let [!last-result (hooks/use-state nil)]
     [:div
@@ -145,7 +129,7 @@
            error [:div.red error]
            (render/valid-react-element? result) result
            'else (render/inspect result))])
-      [mx-view]]]))
+      [command-bar/view]]]))
 
 (defonce react-root
   (react-client/createRoot (js/document.getElementById "root")))
