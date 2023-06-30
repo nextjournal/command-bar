@@ -95,15 +95,17 @@
      [:div (get-fn-name run)]
      [:div.text-slate-300.font-inter (get-pretty-key (or key mac))]]))
 
-(defn cmd-list [{:keys [query]}]
-  [:<>
-   [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
-   (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
-         (map cmd-view)
-         (fuzzy/search @!bindings #(get-fn-name (j/get % :run)) (or query "")))])
+(defn cmd-list [!state]
+  (let [{:keys [query]} @!state]
+    [:<>
+     [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
+     (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
+           (map cmd-view)
+           (fuzzy/search @!bindings #(get-fn-name (j/get % :run)) (or query "")))]))
 
-(defn query-input [{:keys [on-input on-blur query] :or {on-input #() on-blur #()}}]
-  (let [placeholder "Search for commands…"]
+(defn query-input [!state]
+  (let [{:keys [query]} @!state
+        placeholder "Search for commands…"]
     [:<>
      [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
       [:div.whitespace-no-wrap.font-mono.pointer-events-none
@@ -111,29 +113,27 @@
        (if (str/blank? query) placeholder query)]
       [:input.bg-transparent.font-mono.text-white.focus:outline-none.absolute.left-0.top-0.w-full.h-full
        {:autoFocus true
-        :on-input on-input
-        :on-blur on-blur
+        :on-input #(swap! !state assoc :query (.. % -target -value))
+        :on-blur #(swap! !state dissoc :query)
         :class "text-[12px]"
         :type "text"
         :placeholder placeholder}]]]))
 
 (defn view []
   (let [!el (hooks/use-ref nil)
-        !focus? (hooks/use-state false)
-        !query (hooks/use-state nil)]
+        !state (hooks/use-state {:focus? false})
+        {:keys [focus?]} @!state]
     (use-global-keybindings)
     (use-watches)
     (hooks/use-effect (fn []
-                        (global-set-key! "Alt-x" (fn toggle-command-bar [] (swap! !focus? not)))
+                        (global-set-key! "Alt-x" (fn toggle-command-bar [] (swap! !state update :focus? not)))
                         #(global-unset-key! "Alt-x")))
     [:div.bg-slate-950.px-4.flex.items-center
      {:ref !el :class "h-[26px]"}
-     (if @!focus?
+     (if focus?
        [:<>
-        [query-input {:on-input #(reset! !query (.. % -target -value))
-                      :on-blur #(reset! !query nil)
-                      :query @!query}]
-        [cmd-list {:query @!query}]]
+        [query-input !state]
+        [cmd-list !state]]
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-global-binding "Alt-x")]
           [cmd-view binding])])]))
