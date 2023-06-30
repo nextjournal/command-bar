@@ -87,25 +87,47 @@
                     "Enter" "↩"} k (str/upper-case k))))
        (str/join " ")))
 
-(defn cmd-view [binding]
-  (let [{:keys [key mac run]} (j/lookup binding)
+(defn run-binding [binding]
+  (let [{:keys [run]} (j/lookup binding)]
+    (run)))
+
+(defn cmd-view [{:keys [binding selected?]}]
+  (let [!el (hooks/use-ref nil)
+        {:keys [key mac run]} (j/lookup binding)
         fn-name (.-name run)]
-    [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.text-white
-     {:class "text-[12px]"}
+    (hooks/use-effect #(when selected? (.scrollIntoViewIfNeeded @!el)) [selected?])
+    [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
+     {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
+      :ref !el}
      [:div (get-fn-name run)]
-     [:div.text-slate-300.font-inter (get-pretty-key (or key mac))]]))
+     [:div.font-inter
+      {:class (if selected? "text-indigo-300" "text-slate-300")}
+      (get-pretty-key (or key mac))]
+     [:div.absolute.bottom-0.left-0.w-full.transition.bg-indigo-300
+      {:class (str "h-[2px] " (if selected? "opacity-100" "opacity-0"))}]]))
 
 (defn cmd-list [!state]
-  (let [{:keys [query]} @!state]
+  (let [{:keys [filtered-bindings query selected-index] :or {selected-index 0}} @!state]
     [:<>
      [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
      (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
-           (map cmd-view)
-           (fuzzy/search @!bindings #(get-fn-name (j/get % :run)) (or query "")))]))
+           (map-indexed (fn [i binding]
+                          [cmd-view {:binding binding
+                                     :selected? (= i selected-index)}]))
+           (or filtered-bindings @!bindings))]))
+
+(defn handle-component-keys [keymap event]
+  (doseq [[key f] keymap]
+    (when (= (.-key event) key)
+      (.preventDefault event)
+      (f event))))
 
 (defn query-input [!state]
-  (let [{:keys [query]} @!state
-        placeholder "Search for commands…"]
+  (let [{:keys [filtered-bindings query selected-index] :or {selected-index 0}} @!state
+        placeholder "Search for commands…"
+        bindings* (if (str/blank? query)
+                    @!bindings
+                    (fuzzy/search @!bindings #(get-fn-name (j/get % :run)) query))]
     [:<>
      [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
       [:div.whitespace-no-wrap.font-mono.pointer-events-none
@@ -113,15 +135,25 @@
        (if (str/blank? query) placeholder query)]
       [:input.bg-transparent.font-mono.text-white.focus:outline-none.absolute.left-0.top-0.w-full.h-full
        {:autoFocus true
-        :on-input #(swap! !state assoc :query (.. % -target -value))
-        :on-blur #(swap! !state dissoc :query)
+        :on-input (fn [event]
+                    (swap! !state merge {:query (.. event -target -value)
+                                         :selected-index 0
+                                         :filtered-bindings bindings*}))
+        :on-blur #(swap! !state dissoc :query :selected-index :filtered-bindings)
+        :on-key-down (fn [event]
+                       (handle-component-keys
+                        {"ArrowRight" (fn [] (swap! !state update :selected-index #(min (dec (count bindings*)) (inc %))))
+                         "ArrowLeft" (fn [] (swap! !state update :selected-index #(max 0 (dec %))))
+                         "Escape" #(swap! !state dissoc :focus?)
+                         "Enter" #(run-binding (nth bindings* selected-index))}
+                        event))
         :class "text-[12px]"
         :type "text"
         :placeholder placeholder}]]]))
 
 (defn view []
   (let [!el (hooks/use-ref nil)
-        !state (hooks/use-state {:focus? false})
+        !state (hooks/use-state {})
         {:keys [focus?]} @!state]
     (use-global-keybindings)
     (use-watches)
@@ -129,11 +161,11 @@
                         (global-set-key! "Alt-x" (fn toggle-command-bar [] (swap! !state update :focus? not)))
                         #(global-unset-key! "Alt-x")))
     [:div.bg-slate-950.px-4.flex.items-center
-     {:ref !el :class "h-[26px]"}
+     {:ref !el}
      (if focus?
        [:<>
         [query-input !state]
         [cmd-list !state]]
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-global-binding "Alt-x")]
-          [cmd-view binding])])]))
+          [cmd-view {:binding binding}])])]))
