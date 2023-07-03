@@ -74,11 +74,16 @@
                         #(do (remove-watch !global-bindings :global)
                              (remove-watch !codemirror-bindings :codemirror))))))
 
+(defonce !fn-names (atom {}))
+
 (defn get-fn-name [f]
   ;; TODO: Expose ns too when not default commands, e.g. view/toggle-command-bar
-  ;; TODO: Memoize fn (use lookup table)
   ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
-  (-> (str/split (.-name f) #"\$[_]") last (str/replace #"_" "-")))
+  (let [n (.-name f)]
+    (get @!fn-names n
+         (let [fn-name (-> (str/split n #"\$[_]") last (str/replace #"_" "-"))]
+           (swap! !fn-names assoc n fn-name)
+           fn-name))))
 
 (defn get-pretty-key [key]
   (->> (str/split key #"-")
