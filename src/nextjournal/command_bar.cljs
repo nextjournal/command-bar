@@ -1,6 +1,6 @@
 (ns nextjournal.command-bar
-  (:require ["@codemirror/state" :refer [StateEffect StateField]]
-            ["@codemirror/view" :refer [keymap EditorView]]
+  (:require ["@codemirror/state" :refer [StateField]]
+            ["@codemirror/view" :refer [keymap EditorView ViewPlugin]]
             [applied-science.js-interop :as j]
             [clojure.string :as str]
             [nextjournal.clerk.render.hooks :as hooks]
@@ -23,21 +23,25 @@
   (first (filter #(= key (j/get % :key)) @!global-bindings)))
 
 (defn get-codemirror-bindings [^js state]
-  (.filter
-   (.flat (.facet state keymap))
-   (fn [binding]
-     (let [{:keys [key mac run]} (j/lookup binding)]
-       (and (or key mac) run (.-name run)))))) ;; TODO: removing everything that doesn't have a fn name for now. Let's revisit.
+  (-> (.facet state keymap)
+      (.flat)
+      (.filter
+       (fn [binding]
+         ;; TODO: removing everything that doesn't have a fn name for now. Let's revisit.
+         (let [{:keys [key mac run]} (j/lookup binding)]
+           (and (or key mac) run (.-name run)))))
+      (.map #(j/assoc! % :codemirror true))))
 
 (def extension
   #js [(.-extension (.define StateField
                              (j/lit {:create #(reset! !codemirror-bindings (get-codemirror-bindings %))
                                      :update (fn [_value tr]
                                                #(reset! !codemirror-bindings (get-codemirror-bindings (.-state tr))))})))
-       (.. EditorView -focusChangeEffect (of (fn [editor-state focus?]
-                                               (when focus?
-                                                 (reset! !codemirror-bindings (get-codemirror-bindings editor-state)))
-                                               (.of (.define StateEffect js/undefined) js/undefined))))])
+       (.define ViewPlugin (fn [view]
+                             #js {:update (fn [^js update]
+                                            (when (and (.-focusChanged update) (.. update -view -hasFocus))
+                                              (reset! !codemirror-bindings (get-codemirror-bindings (.-state update)))
+                                              (reset! !codemirror-view (.-view update))))}))])
 
 (defonce modifiers #{"Alt" "Control" "Meta" "Shift"})
 
@@ -96,8 +100,12 @@
        (str/join " ")))
 
 (defn run-binding [binding]
-  (let [{:keys [run]} (j/lookup binding)]
-    (run)))
+  (let [{:keys [codemirror run]} (j/lookup binding)]
+    (if codemirror
+      (do
+        (.focus @!codemirror-view)
+        (js/requestAnimationFrame #(run @!codemirror-view)))
+      (run))))
 
 (defn cmd-view [{:keys [binding selected?]}]
   (let [!el (hooks/use-ref nil)
@@ -153,7 +161,9 @@
                         {"ArrowRight" (fn [] (swap! !state update :selected-index #(min (dec (count bindings*)) (inc %))))
                          "ArrowLeft" (fn [] (swap! !state update :selected-index #(max 0 (dec %))))
                          "Escape" #(swap! !state dissoc :focus?)
-                         "Enter" #(run-binding (nth bindings* selected-index))}
+                         "Enter" (fn []
+                                   (swap! !state dissoc :focus?)
+                                   (run-binding (nth bindings* selected-index)))}
                         event))
         :class "text-[12px]"
         :type "text"
