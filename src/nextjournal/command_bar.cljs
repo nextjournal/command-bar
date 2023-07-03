@@ -1,6 +1,6 @@
 (ns nextjournal.command-bar
-  (:require ["@codemirror/state" :refer [StateField]]
-            ["@codemirror/view" :refer [keymap]]
+  (:require ["@codemirror/state" :refer [StateEffect StateField]]
+            ["@codemirror/view" :refer [keymap EditorView]]
             [applied-science.js-interop :as j]
             [clojure.string :as str]
             [nextjournal.clerk.render.hooks :as hooks]
@@ -10,6 +10,7 @@
 (defonce !bindings (reagent/atom []))
 (defonce !global-bindings (reagent/atom []))
 (defonce !codemirror-bindings (reagent/atom []))
+(defonce !codemirror-view (reagent/atom nil))
 
 (defn global-unset-key! [keybinding]
   (swap! !global-bindings (fn [bindings]
@@ -29,10 +30,14 @@
        (and (or key mac) run (.-name run)))))) ;; TODO: removing everything that doesn't have a fn name for now. Let's revisit.
 
 (def extension
-  (.-extension (.define StateField
-                        (j/lit {:create #(reset! !codemirror-bindings (get-codemirror-bindings %))
-                                :update (fn [_value tr]
-                                          #(reset! !codemirror-bindings (get-codemirror-bindings (.-state tr))))}))))
+  #js [(.-extension (.define StateField
+                             (j/lit {:create #(reset! !codemirror-bindings (get-codemirror-bindings %))
+                                     :update (fn [_value tr]
+                                               #(reset! !codemirror-bindings (get-codemirror-bindings (.-state tr))))})))
+       (.. EditorView -focusChangeEffect (of (fn [editor-state focus?]
+                                               (when focus?
+                                                 (reset! !codemirror-bindings (get-codemirror-bindings editor-state)))
+                                               (.of (.define StateEffect js/undefined) js/undefined))))])
 
 (defonce modifiers #{"Alt" "Control" "Meta" "Shift"})
 
@@ -66,6 +71,9 @@
                              (remove-watch !codemirror-bindings :codemirror))))))
 
 (defn get-fn-name [f]
+  ;; TODO: Expose ns too when not default commands, e.g. view/toggle-command-bar
+  ;; TODO: Memoize fn (use lookup table)
+  ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
   (-> (str/split (.-name f) #"\$[_]") last (str/replace #"_" "-")))
 
 (defn get-pretty-key [key]
