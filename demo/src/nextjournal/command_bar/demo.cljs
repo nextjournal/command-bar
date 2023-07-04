@@ -114,8 +114,41 @@
          (reset! !view nil))))
     [:div.w-full.h-full.font-mono {:ref !el}]))
 
+(defonce !last-result (r/atom nil))
+
+(defn describe-key
+  "Describes which function a key or sequence of keys is bound to. Shows the bound function's docstring when available."
+  []
+  (command-bar/toggle-interactive!
+   (fn [!state]
+     [:<>
+      [command-bar/label {:text "Describe key:"}]
+      [command-bar/input !state {:placeholder "Press a key or binding…"
+                                 :default-value (or (:describe-key/key @!state) "")
+                                 :on-key-down (fn [event]
+                                                (.preventDefault event)
+                                                (.stopPropagation event)
+                                                (if (= (.-key event) "Escape")
+                                                  (command-bar/kill-interactive!)
+                                                  (let [key (command-bar/get-full-key event)]
+                                                    (swap! !state assoc :describe-key/key key))))
+                                 :on-key-up (fn [event]
+                                              (when-let [key (:describe-key/key @!state)]
+                                                (when-let [binding (command-bar/get-binding key)]
+                                                  (let [{:keys [run var]} (j/lookup binding)]
+                                                    (swap! !last-result assoc :result (r/as-element [:div.font-mono {:class "text-[12px]"}
+                                                                                                     [:div
+                                                                                                      [:span.font-bold key] " is bound to: "
+                                                                                                      [:span.font-bold (command-bar/get-fn-name run)]]
+                                                                                                     (when-let [docs (some-> var meta :doc)]
+                                                                                                       [:div.mt-3 docs])]))))
+                                                (swap! !state dissoc :describe-key/key)
+                                                (command-bar/kill-interactive!)))}]])))
+
 (defn root []
-  (let [!last-result (hooks/use-state nil)]
+  (let [#_#_!last-result (hooks/use-state nil)
+        #_#_describe-key (fn describe-key []
+                           (describe-key* !last-result))]
     [:div
      [:div.absolute.left-0.top-0.w-full.bg-slate-200.p-4
       {:class "bottom-[24px]"}
@@ -124,12 +157,12 @@
                :on-reset-result #(reset! !last-result nil)}]]
      [:div.absolute.left-0.bottom-0.w-full
       (when-some [{:keys [error result]} @!last-result]
-        [:div.bg-white.border-t.border-slate-300.p-3
+        [:div.bg-white.border-t.border-slate-300.px-4.py-3
          (cond
            error [:div.red error]
            (render/valid-react-element? result) result
            'else (render/inspect result))])
-      [command-bar/view]]]))
+      [command-bar/view {"Alt-d" #'describe-key}]]]))
 
 (defonce react-root
   (react-client/createRoot (js/document.getElementById "root")))

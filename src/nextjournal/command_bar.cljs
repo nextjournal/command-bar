@@ -11,13 +11,17 @@
 (defonce !global-bindings (reagent/atom []))
 (defonce !codemirror-bindings (reagent/atom []))
 (defonce !codemirror-view (reagent/atom nil))
+(defonce !state (reagent/atom {}))
 
 (defn global-unset-key! [keybinding]
   (swap! !global-bindings (fn [bindings]
                             (remove #(= keybinding (j/get % :key)) bindings))))
 
-(defn global-set-key! [keybinding f]
-  (swap! !global-bindings conj #js {:key keybinding :run f}))
+(defn global-set-key! [keybinding fvar]
+  (swap! !global-bindings conj #js {:key keybinding :run @fvar :var fvar}))
+
+(defn get-binding [key]
+  (first (filter #(= key (j/get % :key)) @!bindings)))
 
 (defn get-global-binding [key]
   (first (filter #(= key (j/get % :key)) @!global-bindings)))
@@ -52,17 +56,25 @@
     (.-ctrlKey event) "Control"
     (.-shiftKey event) "Shift"))
 
+(defn is-only-modifier? [event]
+  (contains? modifiers (.-key event)))
+
+(defn get-full-key [event]
+  (let [modifier (get-event-modifier event)]
+    (if (is-only-modifier? event)
+      (get-event-modifier event)
+      (cond->> (-> (.-code event) (str/replace #"Key" "") str/lower-case)
+        modifier (str modifier "-")))))
+
+;; TODO: Use keyboard event lib that allows chording/multiple modifiers
 (defn use-global-keybindings []
   (hooks/use-effect
    (fn []
      (let [handle-global-key (fn [event]
-                               (when-not (contains? modifiers (.-key event))
-                                 (let [modifier (get-event-modifier event)
-                                       key (cond->> (-> (.-code event) (str/replace #"Key" "") str/lower-case)
-                                             modifier (str modifier "-"))]
-                                   (when-let [binding (get-global-binding key)]
-                                     (.preventDefault event)
-                                     (j/call binding :run)))))]
+                               (when-not (is-only-modifier? event)
+                                 (when-let [binding (get-global-binding (get-full-key event))]
+                                   (.preventDefault event)
+                                   (j/call binding :run))))]
        (.addEventListener js/document "keypress" handle-global-key)
        #(.removeEventListener js/document "keypress" handle-global-key)))))
 
@@ -81,7 +93,7 @@
   ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
   (let [n (.-name f)]
     (get @!fn-names n
-         (let [fn-name (-> (str/split n #"\$[_]") last (str/replace #"_" "-"))]
+         (let [fn-name (-> (str/split n #"\$_?") last (str/replace #"_" "-"))]
            (swap! !fn-names assoc n fn-name)
            fn-name))))
 
@@ -112,6 +124,17 @@
         (js/requestAnimationFrame #(run @!codemirror-view)))
       (run))))
 
+(defn kill-interactive! []
+  (swap! !state dissoc :interactive))
+
+(defn make-interactive! [interactive-fn]
+  (swap! !state assoc :interactive interactive-fn))
+
+(defn toggle-interactive! [interactive-fn]
+  (if (:interactive @!state)
+    (kill-interactive!)
+    (make-interactive! interactive-fn)))
+
 (defn cmd-view [{:keys [binding selected?]}]
   (let [!el (hooks/use-ref nil)
         {:keys [key mac run]} (j/lookup binding)
@@ -127,68 +150,86 @@
      [:div.absolute.bottom-0.left-0.w-full.transition.bg-indigo-300
       {:class (str "h-[2px] " (if selected? "opacity-100" "opacity-0"))}]]))
 
-(defn cmd-list [!state]
-  (let [{:keys [filtered-bindings query selected-index] :or {selected-index 0}} @!state]
-    [:<>
-     [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
-     (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
-           (map-indexed (fn [i binding]
-                          [cmd-view {:binding binding
-                                     :selected? (= i selected-index)}]))
-           (or filtered-bindings @!bindings))]))
-
 (defn handle-component-keys [keymap event]
   (doseq [[key f] keymap]
     (when (= (.-key event) key)
       (.preventDefault event)
       (f event))))
 
-(defn query-input [!state]
-  (let [{:keys [filtered-bindings query selected-index] :or {selected-index 0}} @!state
-        placeholder "Search for commands…"
-        bindings* (if (str/blank? query)
-                    @!bindings
-                    (fuzzy/search @!bindings #(get-fn-name (j/get % :run)) query))]
-    [:<>
-     [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
-      [:div.whitespace-no-wrap.font-mono.pointer-events-none
-       {:class "text-[12px]"}
-       (if (str/blank? query) placeholder query)]
-      [:input.bg-transparent.font-mono.text-white.focus:outline-none.absolute.left-0.top-0.w-full.h-full
-       {:autoFocus true
-        :on-input (fn [event]
-                    (swap! !state merge {:query (.. event -target -value)
-                                         :selected-index 0
-                                         :filtered-bindings bindings*}))
-        :on-blur #(swap! !state dissoc :query :selected-index :filtered-bindings)
-        :on-key-down (fn [event]
-                       (handle-component-keys
-                        {"ArrowRight" (fn [] (swap! !state update :selected-index #(min (dec (count bindings*)) (inc %))))
-                         "ArrowLeft" (fn [] (swap! !state update :selected-index #(max 0 (dec %))))
-                         "Escape" #(swap! !state dissoc :focus?)
-                         "Enter" (fn []
-                                   (swap! !state dissoc :focus?)
-                                   (run-binding (nth bindings* selected-index)))}
-                        event))
-        :class "text-[12px]"
-        :type "text"
-        :placeholder placeholder}]]]))
+(def default-component-keys
+  {"Escape" #(kill-interactive!)
+   "Enter" #(kill-interactive!)})
 
-(defn view []
+(defn label [{:keys [text]}]
+  [:label.text-white.mr-2.flex.items-center.font-mono {:class "h-[26px] text-[12px]"} text])
+
+;; TODO: Find a more elegant way than on-arrow-, &c
+(defn input [!state {:keys [placeholder on-input on-blur on-key-down on-key-up component-keys default-value]}]
+  (let [{:input/keys [query]} @!state]
+    [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
+     [:div.whitespace-no-wrap.font-mono.pointer-events-none
+      {:class "text-[12px]"}
+      (if (str/blank? query) placeholder query)]
+     [:input.bg-transparent.font-mono.text-white.focus:outline-none.absolute.left-0.top-0.w-full
+      {:autoFocus true
+       :on-input on-input
+       :on-blur on-blur
+       :on-key-down (or on-key-down (partial handle-component-keys (merge default-component-keys component-keys)))
+       :on-key-up (or on-key-up #())
+       :class "text-[12px]"
+       :type "text"
+       :placeholder placeholder
+       :default-value default-value}]]))
+
+(defn pick-list [!state {:keys [placeholder items on-select]}]
+  (let [{:pick-list/keys [filtered-items selected-index] :input/keys [query]
+         :or {selected-index 0}} @!state
+        items* (if (str/blank? query)
+                 items
+                 (fuzzy/search items #(get-fn-name (j/get % :run)) query))]
+    [:<>
+     [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
+     [input !state {:placeholder placeholder
+                    :on-input (fn [event]
+                                (swap! !state merge {:input/query (.. event -target -value)
+                                                     :pick-list/selected-index 0
+                                                     :pick-list/filtered-items items*}))
+                    :on-blur #(swap! !state dissoc :input/query :pick-list/selected-index :pick-list/filtered-items)
+                    :component-keys {"ArrowRight" (fn [] (swap! !state update :pick-list/selected-index #(min (dec (count items*)) (inc %))))
+                                     "ArrowLeft" (fn [] (swap! !state update :pick-list/selected-index #(max 0 (dec %))))
+                                     "Enter" (partial on-select (nth items* selected-index))}}]
+     (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
+           (map-indexed (fn [i binding]
+                          [cmd-view {:binding binding
+                                     :selected? (= i selected-index)}]))
+           (or filtered-items items))]))
+
+(defn toggle-command-bar
+  "Shows a searchable list of all available commands. Use ← and → to navigate or ↩ to run the selected command."
+  []
+  (toggle-interactive! (fn [!state]
+                         [pick-list !state {:placeholder "Search for commands…"
+                                            :items @!bindings
+                                            :on-select (fn [selected-binding _event]
+                                                         (kill-interactive!)
+                                                         (run-binding selected-binding))}])))
+
+(defn view [commands]
   (let [!el (hooks/use-ref nil)
-        !state (hooks/use-state {})
-        {:keys [focus?]} @!state]
+        {:keys [interactive]} @!state]
     (use-global-keybindings)
     (use-watches)
     (hooks/use-effect (fn []
-                        (global-set-key! "Alt-x" (fn toggle-command-bar [] (swap! !state update :focus? not)))
-                        #(global-unset-key! "Alt-x")))
+                        (global-set-key! "Alt-x" #'toggle-command-bar)
+                        (doseq [[binding run] commands]
+                          (global-set-key! binding run))
+                        #(do (global-unset-key! "Alt-x")
+                             (doseq [[binding _run] commands]
+                               (global-unset-key! binding)))))
     [:div.bg-slate-950.px-4.flex.items-center
      {:ref !el}
-     (if focus?
-       [:<>
-        [query-input !state]
-        [cmd-list !state]]
+     (if interactive
+       [interactive !state]
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-global-binding "Alt-x")]
           [cmd-view {:binding binding}])])]))
