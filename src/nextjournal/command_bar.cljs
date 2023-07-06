@@ -210,18 +210,20 @@
                                                          (kill-interactive!)
                                                          (run-binding selected-binding))}])))
 
+(def default-commands
+  {"Alt-x" #'toggle-command-bar
+   "Ctrl-g" #'kill-interactive!})
 
 (defn view [commands]
   (let [!el (hooks/use-ref nil)
         {:keys [interactive]} @!state]
     (use-watches)
     (hooks/use-effect (fn []
-                        (global-set-key! "Alt-x" #'toggle-command-bar)
-                        (doseq [[binding run] commands]
-                          (global-set-key! binding run))
-                        #(do (global-unset-key! (get-fn-key #'toggle-command-bar))
-                             (doseq [[_binding run] commands]
-                               (global-unset-key! (get-fn-key run))))))
+                        (let [all-commands (merge commands default-commands)]
+                          (doseq [[binding run] all-commands]
+                            (global-set-key! binding run))
+                          #(doseq [[_binding run] all-commands]
+                             (global-unset-key! (get-fn-key run))))))
     [:div.bg-slate-950.px-4.flex.items-center
      {:ref !el}
      (if interactive
