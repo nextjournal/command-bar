@@ -5,6 +5,7 @@
             [clojure.string :as str]
             [nextjournal.clerk.render.hooks :as hooks]
             [nextjournal.command-bar.fuzzy :as fuzzy]
+            [nextjournal.command-bar.keybind :as keybind]
             [reagent.core :as reagent]))
 
 (defonce !bindings (reagent/atom []))
@@ -13,28 +14,55 @@
 (defonce !codemirror-view (reagent/atom nil))
 (defonce !state (reagent/atom {}))
 
-(defn global-unset-key! [keybinding]
-  (swap! !global-bindings (fn [bindings]
-                            (remove #(= keybinding (j/get % :key)) bindings))))
+(defn chord->spec [{:keys [shift ctrl meta alt button]}]
+  (str/join "-" (remove nil? [(when meta "meta")
+                              (when shift "shift")
+                              (when ctrl "ctrl")
+                              (when alt "alt")
+                              button])))
 
-(defn global-set-key! [keybinding fvar]
-  (swap! !global-bindings conj #js {:key keybinding :run @fvar :var fvar}))
+(defn normalize-spec [spec]
+  (chord->spec (keybind/parse-chord (str/lower-case spec))))
 
-(defn get-binding [key]
-  (first (filter #(= key (j/get % :key)) @!bindings)))
+(defn mod-only-chord? [{:keys [button]}]
+  (some #(str/starts-with? button %) (keys keybind/MODS)))
 
-(defn get-global-binding [key]
-  (first (filter #(= key (j/get % :key)) @!global-bindings)))
+(defn get-fn-key [fvar]
+  (keyword (symbol fvar)))
+
+(defn get-binding-from-key [key]
+  (first (filter #(= key (:key %)) @!bindings)))
+
+(defn get-binding-from-spec [spec]
+  (let [spec (normalize-spec spec)]
+    (first (filter #(= spec (:spec %)) @!bindings))))
+
+(defn global-set-key!
+  ([spec fvar]
+   (global-set-key! spec (get-fn-key fvar) fvar))
+  ([spec key fvar]
+   (let [spec (normalize-spec spec)]
+     (keybind/bind! spec key (fn [event]
+                               (.preventDefault event)
+                               (@fvar)))
+     (swap! !global-bindings conj {:spec spec :key key :run @fvar :var fvar}))))
+
+(defn global-unset-key! [key]
+  (when-let [{:keys [spec run]} (get-binding-from-key key)]
+    (keybind/unbind! spec key)
+    (swap! !global-bindings (fn [bindings]
+                              (remove #(= key (:key %)) bindings)))))
 
 (defn get-codemirror-bindings [^js state]
-  (-> (.facet state keymap)
-      (.flat)
-      (.filter
-       (fn [binding]
-         ;; TODO: removing everything that doesn't have a fn name for now. Let's revisit.
-         (let [{:keys [key mac run]} (j/lookup binding)]
-           (and (or key mac) run (.-name run)))))
-      (.map #(j/assoc! % :codemirror true))))
+  (map
+   (fn [binding]
+     (let [{:keys [key mac run]} (j/lookup binding)
+           key (or key mac)]
+       {:codemirror? true
+        :spec (normalize-spec key)
+        :run run}))
+   ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
+   (.. state (facet keymap) flat (filter #(and (or (.-key %) (.-mac %)) (.-run %) (.. % -run -name))))))
 
 (def extension
   #js [(.-extension (.define StateField
@@ -46,37 +74,6 @@
                                             (when (and (.-focusChanged update) (.. update -view -hasFocus))
                                               (reset! !codemirror-bindings (get-codemirror-bindings (.-state update)))
                                               (reset! !codemirror-view (.-view update))))}))])
-
-(defonce modifiers #{"Alt" "Control" "Meta" "Shift"})
-
-(defn get-event-modifier [event]
-  (cond
-    (.-metaKey event) "Meta"
-    (.-altKey event) "Alt"
-    (.-ctrlKey event) "Control"
-    (.-shiftKey event) "Shift"))
-
-(defn is-only-modifier? [event]
-  (contains? modifiers (.-key event)))
-
-(defn get-full-key [event]
-  (let [modifier (get-event-modifier event)]
-    (if (is-only-modifier? event)
-      (get-event-modifier event)
-      (cond->> (-> (.-code event) (str/replace #"Key" "") str/lower-case)
-        modifier (str modifier "-")))))
-
-;; TODO: Use keyboard event lib that allows chording/multiple modifiers
-(defn use-global-keybindings []
-  (hooks/use-effect
-   (fn []
-     (let [handle-global-key (fn [event]
-                               (when-not (is-only-modifier? event)
-                                 (when-let [binding (get-global-binding (get-full-key event))]
-                                   (.preventDefault event)
-                                   (j/call binding :run))))]
-       (.addEventListener js/document "keypress" handle-global-key)
-       #(.removeEventListener js/document "keypress" handle-global-key)))))
 
 (defn use-watches []
   (hooks/use-effect (fn []
@@ -97,32 +94,32 @@
            (swap! !fn-names assoc n fn-name)
            fn-name))))
 
-(defn get-pretty-key [key]
-  (->> (str/split key #"-")
+(defn get-pretty-spec [spec]
+  (->> (str/split spec #"-")
        (map (fn [k]
               ;; TODO: Investigate why Cmd/Meta/Mod and Control/Ctrl are not unified
-              (get {"Alt" "⌥"
-                    "Control" "^"
-                    "Ctrl" "^"
-                    "Shift" "⇧"
-                    "Cmd" "⌘"
-                    "Meta" "⌘"
-                    "Mod" "⌘"
-                    "ArrowLeft" "←"
-                    "ArrowRight" "→"
-                    "ArrowUp" "↑"
-                    "ArrowDown" "↓"
-                    "Backspace" "⌫"
-                    "Enter" "↩"} k (str/upper-case k))))
+              (get {"alt" "⌥"
+                    "option" "⌥"
+                    "control" "^"
+                    "ctrl" "^"
+                    "shift" "⇧"
+                    "cmd" "⌘"
+                    "meta" "⌘"
+                    "mod" "⌘"
+                    "arrowleft" "←"
+                    "arrowright" "→"
+                    "arrowup" "↑"
+                    "arrowdown" "↓"
+                    "backspace" "⌫"
+                    "enter" "↩"} (str/lower-case k) (str/upper-case k))))
        (str/join " ")))
 
-(defn run-binding [binding]
-  (let [{:keys [codemirror run]} (j/lookup binding)]
-    (if codemirror
-      (do
-        (.focus @!codemirror-view)
-        (js/requestAnimationFrame #(run @!codemirror-view)))
-      (run))))
+(defn run-binding [{:keys [codemirror? run]}]
+  (if codemirror?
+    (do
+      (.focus @!codemirror-view)
+      (js/requestAnimationFrame #(run @!codemirror-view)))
+    (run)))
 
 (defn kill-interactive! []
   (swap! !state dissoc :interactive))
@@ -137,7 +134,7 @@
 
 (defn cmd-view [{:keys [binding selected?]}]
   (let [!el (hooks/use-ref nil)
-        {:keys [key mac run]} (j/lookup binding)
+        {:keys [spec run]} binding
         fn-name (.-name run)]
     (hooks/use-effect #(when selected? (.scrollIntoViewIfNeeded @!el)) [selected?])
     [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
@@ -146,7 +143,7 @@
      [:div (get-fn-name run)]
      [:div.font-inter
       {:class (if selected? "text-indigo-300" "text-slate-300")}
-      (get-pretty-key (or key mac))]
+      (get-pretty-spec spec)]
      [:div.absolute.bottom-0.left-0.w-full.transition.bg-indigo-300
       {:class (str "h-[2px] " (if selected? "opacity-100" "opacity-0"))}]]))
 
@@ -163,7 +160,6 @@
 (defn label [{:keys [text]}]
   [:label.text-white.mr-2.flex.items-center.font-mono {:class "h-[26px] text-[12px]"} text])
 
-;; TODO: Find a more elegant way than on-arrow-, &c
 (defn input [!state {:keys [placeholder on-input on-blur on-key-down on-key-up component-keys default-value]}]
   (let [{:input/keys [query]} @!state]
     [:div.relative.flex-shrink-0.border-r.border-slate-600.pr-3.mr-3
@@ -186,7 +182,7 @@
          :or {selected-index 0}} @!state
         items* (if (str/blank? query)
                  items
-                 (fuzzy/search items #(get-fn-name (j/get % :run)) query))]
+                 (fuzzy/search items #(get-fn-name (:run %)) query))]
     [:<>
      [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
      [input !state {:placeholder placeholder
@@ -197,7 +193,7 @@
                     :on-blur #(swap! !state dissoc :input/query :pick-list/selected-index :pick-list/filtered-items)
                     :component-keys {"ArrowRight" (fn [] (swap! !state update :pick-list/selected-index #(min (dec (count items*)) (inc %))))
                                      "ArrowLeft" (fn [] (swap! !state update :pick-list/selected-index #(max 0 (dec %))))
-                                     "Enter" (partial on-select (nth items* selected-index))}}]
+                                     "Enter" #(on-select (nth items* selected-index) %)}}]
      (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
            (map-indexed (fn [i binding]
                           [cmd-view {:binding binding
@@ -214,22 +210,22 @@
                                                          (kill-interactive!)
                                                          (run-binding selected-binding))}])))
 
+
 (defn view [commands]
   (let [!el (hooks/use-ref nil)
         {:keys [interactive]} @!state]
-    (use-global-keybindings)
     (use-watches)
     (hooks/use-effect (fn []
                         (global-set-key! "Alt-x" #'toggle-command-bar)
                         (doseq [[binding run] commands]
                           (global-set-key! binding run))
-                        #(do (global-unset-key! "Alt-x")
-                             (doseq [[binding _run] commands]
-                               (global-unset-key! binding)))))
+                        #(do (global-unset-key! (get-fn-key #'toggle-command-bar))
+                             (doseq [[_binding run] commands]
+                               (global-unset-key! (get-fn-key run))))))
     [:div.bg-slate-950.px-4.flex.items-center
      {:ref !el}
      (if interactive
        [interactive !state]
        [:div.text-slate-300 {:class "text-[12px]"}
-        (when-let [binding (get-global-binding "Alt-x")]
+        (when-let [binding (get-binding-from-spec "Alt-x")]
           [cmd-view {:binding binding}])])]))

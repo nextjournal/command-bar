@@ -9,6 +9,7 @@
             [applied-science.js-interop :as j]
             [clojure.string :as str]
             [nextjournal.command-bar :as command-bar]
+            [nextjournal.command-bar.keybind :as keybind]
             [nextjournal.command-bar.demo.sci :as demo.sci]
             [nextjournal.clerk.render :as render]
             [nextjournal.clerk.render.hooks :as hooks]
@@ -116,53 +117,72 @@
 
 (defonce !last-result (r/atom nil))
 
+(defn key-description [{:keys [codemirror? run spec var]}]
+  [:div.font-mono {:class "text-[12px]"}
+   [:div
+    (into [:span.inline-flex {:class "gap-[2px]"}]
+          (map (fn [k] [:span.rounded-sm.shadow.border.border-slate-300.shadow-inner.font-bold.leading-none.text-center
+                       {:class "px-[3px] py-[1px] min-w-[16px]"} k]))
+          (str/split (command-bar/get-pretty-spec spec) #" "))
+    " is bound to "
+    (when codemirror?
+      [:span "CodeMirror's "])
+    [:span
+     (when-let [ns (some-> var meta :ns)]
+       [:span ns "/"])
+     [:span.font-bold (command-bar/get-fn-name run)]]
+    (when codemirror?
+      " command")]
+   (when-let [docs (some-> var meta :doc)]
+     [:div.mt-3 docs])])
+
 (defn describe-key
   "Describes which function a key or sequence of keys is bound to. Shows the bound function's docstring when available."
   []
   (command-bar/toggle-interactive!
    (fn [!state]
+     (hooks/use-effect
+      (fn []
+        (keybind/disable!)
+        #(keybind/enable!)))
      [:<>
       [command-bar/label {:text "Describe key:"}]
       [command-bar/input !state {:placeholder "Press a key or binding…"
-                                 :default-value (or (:describe-key/key @!state) "")
+                                 :default-value (if-let [spec (:describe-key/spec @!state)]
+                                                  (command-bar/get-pretty-spec spec)
+                                                  "")
                                  :on-key-down (fn [event]
                                                 (.preventDefault event)
                                                 (.stopPropagation event)
                                                 (if (= (.-key event) "Escape")
                                                   (command-bar/kill-interactive!)
-                                                  (let [key (command-bar/get-full-key event)]
-                                                    (swap! !state assoc :describe-key/key key))))
+                                                  (let [chord (keybind/e->chord event)
+                                                        spec (cond-> chord
+                                                               (command-bar/mod-only-chord? chord) (dissoc :button)
+                                                               true command-bar/chord->spec)]
+                                                    (swap! !state assoc :describe-key/spec spec))))
                                  :on-key-up (fn [event]
-                                              (when-let [key (:describe-key/key @!state)]
-                                                (when-let [binding (command-bar/get-binding key)]
-                                                  (let [{:keys [run var]} (j/lookup binding)]
-                                                    (swap! !last-result assoc :result (r/as-element [:div.font-mono {:class "text-[12px]"}
-                                                                                                     [:div
-                                                                                                      [:span.font-bold key] " is bound to: "
-                                                                                                      [:span.font-bold (command-bar/get-fn-name run)]]
-                                                                                                     (when-let [docs (some-> var meta :doc)]
-                                                                                                       [:div.mt-3 docs])]))))
-                                                (swap! !state dissoc :describe-key/key)
+                                              (when-let [spec (:describe-key/spec @!state)]
+                                                (when-let [binding (command-bar/get-binding-from-spec spec)]
+                                                  (swap! !last-result assoc :result (r/as-element [key-description binding])))
+                                                (swap! !state dissoc :describe-key/spec)
                                                 (command-bar/kill-interactive!)))}]])))
 
 (defn root []
-  (let [#_#_!last-result (hooks/use-state nil)
-        #_#_describe-key (fn describe-key []
-                           (describe-key* !last-result))]
-    [:div
-     [:div.absolute.left-0.top-0.w-full.bg-slate-200.p-4
-      {:class "bottom-[24px]"}
-      [editor {:source "(+ 1 1)"
-               :on-result #(reset! !last-result %)
-               :on-reset-result #(reset! !last-result nil)}]]
-     [:div.absolute.left-0.bottom-0.w-full
-      (when-some [{:keys [error result]} @!last-result]
-        [:div.bg-white.border-t.border-slate-300.px-4.py-3
-         (cond
-           error [:div.red error]
-           (render/valid-react-element? result) result
-           'else (render/inspect result))])
-      [command-bar/view {"Alt-d" #'describe-key}]]]))
+  [:div
+   [:div.absolute.left-0.top-0.w-full.bg-slate-200.p-4
+    {:class "bottom-[24px]"}
+    [editor {:source "(+ 1 1)"
+             :on-result #(reset! !last-result %)
+             :on-reset-result #(reset! !last-result nil)}]]
+   [:div.absolute.left-0.bottom-0.w-full
+    (when-some [{:keys [error result]} @!last-result]
+      [:div.bg-white.border-t.border-slate-300.px-4.py-3
+       (cond
+         error [:div.red error]
+         (render/valid-react-element? result) result
+         :else (render/inspect result))])
+    [command-bar/view {"Alt-d" #'describe-key}]]])
 
 (defonce react-root
   (react-client/createRoot (js/document.getElementById "root")))
