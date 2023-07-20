@@ -117,13 +117,16 @@
 
 (defonce !last-result (r/atom nil))
 
+(defn keys-view [spec]
+  (into [:span.inline-flex {:class "gap-[2px]"}]
+        (map (fn [k] [:span.rounded-sm.shadow.border.border-slate-300.shadow-inner.font-bold.leading-none.text-center
+                     {:class "px-[3px] py-[1px] min-w-[16px]"} k]))
+        (str/split (command-bar/get-pretty-spec spec) #" ")))
+
 (defn key-description [{:keys [codemirror? run spec var]}]
   [:div.font-mono {:class "text-[12px]"}
    [:div
-    (into [:span.inline-flex {:class "gap-[2px]"}]
-          (map (fn [k] [:span.rounded-sm.shadow.border.border-slate-300.shadow-inner.font-bold.leading-none.text-center
-                        {:class "px-[3px] py-[1px] min-w-[16px]"} k]))
-          (str/split (command-bar/get-pretty-spec spec) #" "))
+    [keys-view spec]
     " is bound to "
     (when codemirror?
       [:span "CodeMirror's "])
@@ -136,6 +139,9 @@
    (when-let [docs (some-> var meta :doc)]
      [:div.mt-3 docs])])
 
+#_nextjournal.command-bar/toggle-command-bar
+#_nextjournal.command-bar.demo.editor/describe-key
+
 (defn doc-view [sym]
   [:div.font-mono {:class "text-[12px]"}
    (let [{:as info :keys [arglists-str doc ns name]} (demo.sci/info {:sym sym :ns "user" :ctx (sci.ctx-store/get-ctx)})]
@@ -144,6 +150,19 @@
         [:div.flex.gap-2
          [:div.font-bold ns "/" name]
          [:div arglists-str]]
+        (let [bindings (keep (fn [{:as binding :keys [var]}]
+                               (when-let [{:keys [ns name]} (meta var)]
+                                 (when (and (= ns (:ns info)) (= name (:name info)))
+                                   binding)))
+                             @command-bar/!global-bindings)]
+          (when (seq bindings)
+            (into [:div.mt-3 "It is bound to "]
+                  (map-indexed (fn [i {:keys [spec]}]
+                                 [:<>
+                                  (when-not (zero? i)
+                                    [:span ", and "])
+                                  [keys-view spec]]))
+                  bindings)))
         (when doc
           [:div.mt-3 doc])]
        [:div "No docs found for " [:span.font-bold sym] "."]))])
