@@ -201,7 +201,9 @@
                     :on-blur #(swap! !state dissoc :input/query :pick-list/selected-index :pick-list/filtered-items)
                     :component-keys {"ArrowRight" (fn [] (swap! !state update :pick-list/selected-index #(min (dec (count items*)) (inc %))))
                                      "ArrowLeft" (fn [] (swap! !state update :pick-list/selected-index #(max 0 (dec %))))
-                                     "Enter" #(on-select (nth items* selected-index) %)}}]
+                                     "Enter" #(do
+                                                (swap! !state dissoc :input/query)
+                                                (on-select (nth items* selected-index) %))}}]
      (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
            (map-indexed (fn [i binding]
                           [cmd-view {:binding binding
