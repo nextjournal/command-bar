@@ -136,6 +136,42 @@
    (when-let [docs (some-> var meta :doc)]
      [:div.mt-3 docs])])
 
+(defn doc-view [sym]
+  [:div.font-mono {:class "text-[12px]"}
+   (let [{:as info :keys [arglists-str doc ns name]} (demo.sci/info {:sym sym :ns "user" :ctx (sci.ctx-store/get-ctx)})]
+     (if ns
+       [:div
+        [:div.flex.gap-2
+         [:div.font-bold ns "/" name]
+         [:div arglists-str]]
+        (when doc
+          [:div.mt-3 doc])]
+       [:div "No docs found for " [:span.font-bold sym] "."]))])
+
+(defn doc
+  "Shows bindings and doc for a given function."
+  []
+  (command-bar/toggle-interactive!
+   (fn [!state]
+     (hooks/use-effect
+      (fn []
+        (keybind/disable!)
+        #(keybind/enable!)))
+     [:<>
+      [command-bar/label {:text "Which name:"}]
+      [command-bar/input !state {:placeholder "Enter name…"
+                                 :default-value (or (:doc/name @!state) "")
+                                 :on-key-down (fn [event]
+                                                (when (= (.-key event) "Enter")
+                                                  (swap! !last-result assoc :result (r/as-element [doc-view (:doc/name @!state)])))
+                                                (when (contains? #{"Escape" "Enter"} (.-key event))
+                                                  (.preventDefault event)
+                                                  (.stopPropagation event)
+                                                  (command-bar/kill-interactive!)
+                                                  (swap! !state dissoc :doc/name)))
+                                 :on-input (fn [event]
+                                             (swap! !state assoc :doc/name (.. event -target -value)))}]])))
+
 (defn describe-key
   "Describes which function a key or sequence of keys is bound to. Shows the bound function's docstring when available."
   []
@@ -182,7 +218,8 @@
          error [:div.red error]
          (render/valid-react-element? result) result
          :else (render/inspect result))])
-    [command-bar/view {"Alt-d" #'describe-key}]]])
+    [command-bar/view {"Alt-d" #'describe-key
+                       "Shift-Alt-d" #'doc}]]])
 
 (defonce react-root
   (react-client/createRoot (js/document.getElementById "root")))
