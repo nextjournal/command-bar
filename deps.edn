@@ -3,9 +3,9 @@
         org.clojure/clojure {:mvn/version "1.11.1"}
         org.clojure/clojurescript {:mvn/version "1.11.60"}
         reagent/reagent {:mvn/version "1.1.1"}
-        io.github.nextjournal/clerk {:git/sha "db59af18a15aa807c947d34d85f83aa750c1ebd6"}
+        io.github.nextjournal/clerk {:git/sha "b7207926bacb10e6af17075efd71df3363b74d21"}
         io.github.nextjournal/clerk.render {:git/url "https://github.com/nextjournal/clerk"
-                                            :git/sha "db59af18a15aa807c947d34d85f83aa750c1ebd6"
+                                            :git/sha "b7207926bacb10e6af17075efd71df3363b74d21"
                                             :deps/root "render"}}
  :aliases {:dev {:extra-deps {thheller/shadow-cljs {:mvn/version "2.24.0"}}}
            :demo {:extra-paths ["demo/src"]
