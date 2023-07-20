@@ -90,7 +90,7 @@
   ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
   (let [n (.-name f)]
     (get @!fn-names n
-         (let [fn-name (-> (str/split n #"\$_?") last (str/replace #"_" "-") (str/replace #"-BANG-" "!"))]
+         (let [fn-name (demunge n) #_(-> (str/split n #"\$_?") last (str/replace #"_" "-") (str/replace #"-BANG-" "!"))]
            (swap! !fn-names assoc n fn-name)
            fn-name))))
 
