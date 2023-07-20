@@ -85,12 +85,18 @@
 
 (defonce !fn-names (atom {}))
 
+(defn get-var-name [demunged-name]
+  (let [parts (str/split demunged-name #"/")]
+    (if (seq (rest parts))
+      (str (str/join "." (drop-last parts)) "/" (last parts))
+      demunged-name)))
+
 (defn get-fn-name [f]
   ;; TODO: Expose ns too when not default commands, e.g. view/toggle-command-bar
   ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
   (let [n (.-name f)]
     (get @!fn-names n
-         (let [fn-name (demunge n) #_(-> (str/split n #"\$_?") last (str/replace #"_" "-") (str/replace #"-BANG-" "!"))]
+         (let [fn-name (get-var-name (demunge n))]
            (swap! !fn-names assoc n fn-name)
            fn-name))))
 
