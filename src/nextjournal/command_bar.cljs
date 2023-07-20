@@ -96,7 +96,7 @@
   ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
   (let [n (.-name f)]
     (get @!fn-names n
-         (let [fn-name (get-var-name (demunge n))]
+         (let [fn-name (last (str/split (demunge n) #"/")) #_(get-var-name (demunge n))]
            (swap! !fn-names assoc n fn-name)
            fn-name))))
 
@@ -139,7 +139,7 @@
     (kill-interactive!)
     (make-interactive! interactive-fn)))
 
-(defn cmd-view [{:keys [binding selected?]}]
+(defn cmd-view [{:keys [binding selected? show-binding?]}]
   (let [!el (hooks/use-ref nil)
         {:keys [spec run]} binding
         fn-name (.-name run)]
@@ -148,9 +148,10 @@
      {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
       :ref !el}
      [:div (get-fn-name run)]
-     [:div.font-inter
-      {:class (if selected? "text-indigo-300" "text-slate-300")}
-      (get-pretty-spec spec)]
+     (when show-binding?
+       [:div.font-inter
+        {:class (if selected? "text-indigo-300" "text-slate-300")}
+        (get-pretty-spec spec)])
      [:div.absolute.bottom-0.left-0.w-full.transition.bg-indigo-300
       {:class (str "h-[2px] " (if selected? "opacity-100" "opacity-0"))}]]))
 
@@ -237,4 +238,4 @@
        [interactive !state]
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-binding-from-spec "Alt-x")]
-          [cmd-view {:binding binding}])])]))
+          [cmd-view {:binding binding :show-binding? true}])])]))
