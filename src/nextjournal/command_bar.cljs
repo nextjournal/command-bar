@@ -215,7 +215,10 @@
   []
   (toggle-interactive! (fn [!state]
                          [pick-list !state {:placeholder "Search for commands…"
-                                            :items @!bindings
+                                            :items (vals (into {}
+                                                               (map (fn [{:as binding :keys [run]}]
+                                                                      [run binding]))
+                                                               @!bindings))
                                             :on-select (fn [selected-binding _event]
                                                          (kill-interactive!)
                                                          (run-binding selected-binding))}])))
