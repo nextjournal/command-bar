@@ -111,7 +111,8 @@
                     "arrowup" "↑"
                     "arrowdown" "↓"
                     "backspace" "⌫"
-                    "enter" "↩"} (str/lower-case k) (str/upper-case k))))
+                    "enter" "↩"
+                    "delete" "Del"} (str/lower-case k) (str/capitalize k))))
        (str/join " ")))
 
 (defn run-binding [{:keys [codemirror? run]}]
