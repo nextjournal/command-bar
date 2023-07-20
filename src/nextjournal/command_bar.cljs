@@ -129,7 +129,7 @@
     (run)))
 
 (defn kill-interactive! []
-  (swap! !state dissoc :interactive))
+  (swap! !state dissoc :interactive :input/query :pick-list/filtered-items :pick-list/selected-index))
 
 (defn make-interactive! [interactive-fn]
   (swap! !state assoc :interactive interactive-fn))
