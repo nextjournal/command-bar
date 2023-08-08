@@ -2,14 +2,17 @@
 (ns nextjournal.command-bar.keybind
   (:require [clojure.string :as str]))
 
+(defn mac-os? []
+  (when (exists? js/navigator)
+    (<= 0 (.indexOf js/navigator.userAgent "Mac OS X"))))
+
 (def MODS
   {"shift" :shift
    "ctrl" :ctrl "control" :ctrl "C" :ctrl
    "alt" :alt "option" :alt "M" :alt
    "win" :meta "cmd" :meta "super" :meta "meta" :meta "S" :meta
    ;; default modifier for OS X is cmd and for others is ctrl
-   "mod" (if (neg? (.indexOf js/navigator.userAgent "Mac OS X"))
-           :ctrl :meta)})
+   "mod" (if (mac-os?) :meta :ctrl)})
 
 (def KEYATTRS
   {:shift "shiftKey" :ctrl "ctrlKey" :alt "altKey" :meta "metaKey"
@@ -181,4 +184,5 @@
 ;; Global key listener
 
 (defonce bind-keypress-listener
-  (js/addEventListener "keydown" (dispatcher! BINDINGS) false))
+  (when (exists? js/window)
+    (js/addEventListener "keydown" (dispatcher! BINDINGS) false)))
