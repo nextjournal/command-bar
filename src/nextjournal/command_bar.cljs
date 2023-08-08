@@ -54,15 +54,22 @@
                               (remove #(= key (:key %)) bindings)))))
 
 (defn get-codemirror-bindings [^js state]
-  (map
-   (fn [binding]
-     (let [{:keys [key mac run]} (j/lookup binding)
-           key (or key mac)]
-       {:codemirror? true
-        :spec (normalize-spec key)
-        :run run}))
-   ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
-   (.. state (facet keymap) flat (filter #(and (or (.-key %) (.-mac %)) (.-run %) (.. % -run -name))))))
+  ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
+  (->> (.. state (facet keymap) flat (filter #(and (or (.-key %) (.-mac %)) (.-run %) (.. % -run -name))))
+       (map
+        (fn [binding]
+          (let [{:keys [key mac run shift]} (j/lookup binding)
+                key (or key mac)]
+            (concat
+             [{:codemirror? true
+               :spec (normalize-spec key)
+               :run run}]
+             (when shift
+               [{:codemirror? true
+                 :spec (normalize-spec (str "Shift-" key))
+                 :run shift}])))))
+       flatten
+       (remove nil?)))
 
 (def extension
   #js [(.-extension (.define StateField
