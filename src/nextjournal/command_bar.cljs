@@ -147,7 +147,7 @@
     (kill-interactive!)
     (make-interactive! interactive-fn)))
 
-(defn cmd-view [{:keys [binding selected? show-binding?]}]
+(defn cmd-view [{:as binding :keys [selected? show-binding?]}]
   (let [!el (hooks/use-ref nil)
         {:keys [spec run]} binding
         fn-name (.-name run)]
@@ -160,6 +160,16 @@
        [:div.font-inter
         {:class (if selected? "text-indigo-300" "text-slate-300")}
         (get-pretty-spec spec)])
+     [:div.absolute.bottom-0.left-0.w-full.transition.bg-indigo-300
+      {:class (str "h-[2px] " (if selected? "opacity-100" "opacity-0"))}]]))
+
+(defn pick-list-item-view [{:keys [label selected?]}]
+  (let [!el (hooks/use-ref nil)]
+    (hooks/use-effect #(when selected? (.scrollIntoViewIfNeeded @!el)) [selected?])
+    [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
+     {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
+      :ref !el}
+     [:div label]
      [:div.absolute.bottom-0.left-0.w-full.transition.bg-indigo-300
       {:class (str "h-[2px] " (if selected? "opacity-100" "opacity-0"))}]]))
 
@@ -193,12 +203,12 @@
        :placeholder placeholder
        :default-value default-value}]]))
 
-(defn pick-list [!state {:keys [placeholder items on-select]}]
+(defn pick-list [!state {:keys [placeholder items on-select fuzzy/match]}]
   (let [{:pick-list/keys [filtered-items selected-index] :input/keys [query]
          :or {selected-index 0}} @!state
         items* (if (str/blank? query)
                  items
-                 (fuzzy/search items #(get-fn-name (:run %)) query))]
+                 (fuzzy/search items match query))]
     [:<>
      [:style ".cmd-list::-webkit-scrollbar { height: 0; } .cmd-list { scrollbar-width: none; }"]
      [input !state {:placeholder placeholder
@@ -213,9 +223,8 @@
                                                 (swap! !state dissoc :input/query)
                                                 (on-select (nth items* selected-index) %))}}]
      (into [:div.cmd-list.flex.flex-auto.items-center.gap-3.overflow-x-auto]
-           (map-indexed (fn [i binding]
-                          [cmd-view {:binding binding
-                                     :selected? (= i selected-index)}]))
+           (map-indexed (fn [i {:as item :keys [item/view]}]
+                          [(or view pick-list-item-view) (assoc item :selected? (= i selected-index))]))
            (or filtered-items items))]))
 
 (defn toggle-command-bar
@@ -223,10 +232,14 @@
   []
   (toggle-interactive! (fn [!state]
                          [pick-list !state {:placeholder "Search for commands…"
-                                            :items (vals (into {}
-                                                               (map (fn [{:as binding :keys [run]}]
-                                                                      [run binding]))
-                                                               @!bindings))
+                                            :fuzzy/match #(get-fn-name (:run %))
+                                            :items (map
+                                                    (fn [item]
+                                                      (assoc item :item/view cmd-view))
+                                                    (vals (into {}
+                                                                (map (fn [{:as binding :keys [run]}]
+                                                                       [run binding]))
+                                                                @!bindings)))
                                             :on-select (fn [selected-binding _event]
                                                          (kill-interactive!)
                                                          (run-binding selected-binding))}])))
@@ -251,4 +264,4 @@
        [interactive !state]
        [:div.text-slate-300 {:class "text-[12px]"}
         (when-let [binding (get-binding-from-spec "Alt-x")]
-          [cmd-view {:binding binding :show-binding? true}])])]))
+          [cmd-view (assoc binding :show-binding? true)])])]))
