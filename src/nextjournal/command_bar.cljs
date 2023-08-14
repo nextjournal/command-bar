@@ -137,7 +137,8 @@
 
 (defn kill-interactive! []
   (swap! !state dissoc :interactive :input/query :pick-list/filtered-items :pick-list/selected-index)
-  (.focus @!codemirror-view))
+  (when-let [cm @!codemirror-view]
+    (.focus cm)))
 
 (defn make-interactive! [interactive-fn]
   (swap! !state assoc :interactive interactive-fn))
@@ -151,7 +152,7 @@
   (let [!el (hooks/use-ref nil)
         {:keys [spec run]} binding
         fn-name (.-name run)]
-    (hooks/use-effect #(when selected? (.scrollIntoViewIfNeeded @!el)) [selected?])
+    (hooks/use-effect #(when selected? (.scrollIntoView @!el)) [selected?])
     [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
      {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
       :ref !el}
@@ -165,7 +166,7 @@
 
 (defn pick-list-item-view [{:keys [label selected?]}]
   (let [!el (hooks/use-ref nil)]
-    (hooks/use-effect #(when selected? (.scrollIntoViewIfNeeded @!el)) [selected?])
+    (hooks/use-effect #(when selected? (.scrollIntoView @!el)) [selected?])
     [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
      {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
       :ref !el}
