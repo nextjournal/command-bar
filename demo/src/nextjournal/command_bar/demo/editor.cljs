@@ -150,19 +150,20 @@
         [:div.flex.gap-2
          [:div.font-bold ns "/" name]
          [:div arglists-str]]
-        (let [bindings (keep (fn [{:as binding :keys [var]}]
-                               (when-let [{:keys [ns name]} (meta var)]
-                                 (when (and (= ns (:ns info)) (= name (:name info)))
-                                   binding)))
-                             @command-bar/!global-bindings)]
-          (when (seq bindings)
-            (into [:div.mt-3 "It is bound to "]
-                  (map-indexed (fn [i {:keys [spec]}]
-                                 [:<>
-                                  (when-not (zero? i)
-                                    [:span ", and "])
-                                  [keys-view spec]]))
-                  bindings)))
+        ;; TODO: Revisit once we figure out how to keep symbols stable in advanced compilation
+        #_(let [bindings (keep (fn [{:as binding :keys [var]}]
+                                 (when-let [{:keys [ns name]} (meta var)]
+                                   (when (and (= ns (:ns info)) (= name (:name info)))
+                                     binding)))
+                               @command-bar/!global-bindings)]
+            (when (seq bindings)
+              (into [:div.mt-3 "It is bound to "]
+                    (map-indexed (fn [i {:keys [spec]}]
+                                   [:<>
+                                    (when-not (zero? i)
+                                      [:span ", and "])
+                                    [keys-view spec]]))
+                    bindings)))
         (when doc
           [:div.mt-3 doc])]
        [:div "No docs found for " [:span.font-bold sym] "."]))])
