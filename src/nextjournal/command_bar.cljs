@@ -46,7 +46,7 @@
 
 (defn global-unset-key! [name {:keys [binding run]}]
   (when-let [{:keys [spec run]} (get-binding-by-name name)]
-    (keybind/unbind! binding name)
+    (keybind/unbind! spec name)
     (swap! !global-bindings (fn [bindings]
                               (remove #(= name (:name %)) bindings)))))
 
