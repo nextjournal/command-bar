@@ -218,7 +218,7 @@
                                                     (swap! !state assoc :describe-key/spec spec))))
                                  :on-key-up (fn [event]
                                               (when-let [spec (:describe-key/spec @!state)]
-                                                (when-let [binding (command-bar/get-binding-from-spec spec)]
+                                                (when-let [binding (command-bar/get-binding-by-spec spec)]
                                                   (swap! !last-result assoc :result (r/as-element [key-description binding])))
                                                 (swap! !state dissoc :describe-key/spec)
                                                 (command-bar/kill-interactive!)))}]])))

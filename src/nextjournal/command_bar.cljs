@@ -30,28 +30,25 @@
 (defn get-fn-key [fvar]
   (keyword (symbol fvar)))
 
-(defn get-binding-from-key [key]
-  (first (filter #(= key (:key %)) @!bindings)))
+(defn get-binding-by-name [name]
+  (first (filter #(= name (:name %)) @!bindings)))
 
-(defn get-binding-from-spec [spec]
+(defn get-binding-by-spec [spec]
   (let [spec (normalize-spec spec)]
     (first (filter #(= spec (:spec %)) @!bindings))))
 
-(defn global-set-key!
-  ([spec fvar]
-   (global-set-key! spec (get-fn-key fvar) fvar))
-  ([spec key fvar]
-   (let [spec (normalize-spec spec)]
-     (keybind/bind! spec key (fn [event]
+(defn global-set-key! [name {:keys [binding run]}]
+  (let [spec (normalize-spec binding)]
+    (keybind/bind! spec name (fn [event]
                                (.preventDefault event)
-                               (@fvar)))
-     (swap! !global-bindings conj {:spec spec :key key :run @fvar :var fvar}))))
+                               (run)))
+    (swap! !global-bindings conj {:spec spec :name name :run run})))
 
-(defn global-unset-key! [key]
-  (when-let [{:keys [spec run]} (get-binding-from-key key)]
-    (keybind/unbind! spec key)
+(defn global-unset-key! [name {:keys [binding run]}]
+  (when-let [{:keys [spec run]} (get-binding-by-name name)]
+    (keybind/unbind! binding name)
     (swap! !global-bindings (fn [bindings]
-                              (remove #(= key (:key %)) bindings)))))
+                              (remove #(= name (:name %)) bindings)))))
 
 (defn get-codemirror-bindings [^js state]
   ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
@@ -246,8 +243,8 @@
                                                          (run-binding selected-binding))}])))
 
 (def default-commands
-  {"Alt-x" #'toggle-command-bar
-   "Ctrl-g" #'kill-interactive!})
+  {:toggle-command-bar {:binding "Alt-x" :run toggle-command-bar}
+   :kill-interactive {:binding "Ctrl-g" :run kill-interactive!}})
 
 (defn view [commands]
   (let [!el (hooks/use-ref nil)
@@ -255,14 +252,14 @@
     (use-watches)
     (hooks/use-effect (fn []
                         (let [all-commands (merge commands default-commands)]
-                          (doseq [[binding run] all-commands]
-                            (global-set-key! binding run))
-                          #(doseq [[_binding run] all-commands]
-                             (global-unset-key! (get-fn-key run))))))
+                          (doseq [[name cmd] all-commands]
+                            (global-set-key! name cmd))
+                          #(doseq [[name cmd] all-commands]
+                             (global-unset-key! name cmd)))))
     [:div.bg-slate-950.px-4.flex.items-center
      {:ref !el}
      (if interactive
        [interactive !state]
        [:div.text-slate-300 {:class "text-[12px]"}
-        (when-let [binding (get-binding-from-spec "Alt-x")]
+        (when-let [binding (get-binding-by-name :toggle-command-bar)]
           [cmd-view (assoc binding :show-binding? true)])])]))
