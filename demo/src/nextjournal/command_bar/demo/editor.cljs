@@ -238,5 +238,5 @@
          error [:div.red error]
          (render/valid-react-element? result) result
          :else (render/inspect result))])
-    [command-bar/view {"Alt-d" #'describe-key
-                       "Shift-Alt-d" #'doc}]]])
+    [command-bar/view {:describe-key {:binding "Alt-d" :run describe-key}
+                       :doc {:binding "Shift-Alt-d" :run doc}}]]])
