@@ -50,6 +50,23 @@
     (swap! !global-bindings (fn [bindings]
                               (remove #(= name (:name %)) bindings)))))
 
+(defonce !fn-names (atom {}))
+
+(defn get-var-name [demunged-name]
+  (let [parts (str/split demunged-name #"/")]
+    (if (seq (rest parts))
+      (str (str/join "." (drop-last parts)) "/" (last parts))
+      demunged-name)))
+
+(defn get-fn-name [f]
+  ;; TODO: Expose ns too when not default commands, e.g. view/toggle-command-bar
+  ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
+  (let [n (.-name f)]
+    (get @!fn-names n
+         (let [fn-name (last (str/split (demunge n) #"/")) #_(get-var-name (demunge n))]
+           (swap! !fn-names assoc n fn-name)
+           fn-name))))
+
 (defn get-codemirror-bindings [^js state]
   ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
   (->> (.. state (facet keymap) flat (filter #(and (or (.-key %) (.-mac %)) (.-run %) (.. % -run -name))))
@@ -60,11 +77,13 @@
             (concat
              [{:codemirror? true
                :spec (normalize-spec key)
-               :run run}]
+               :run run
+               :name (get-fn-name run)}]
              (when shift
                [{:codemirror? true
                  :spec (normalize-spec (str "Shift-" key))
-                 :run shift}])))))
+                 :run shift
+                 :name (get-fn-name run)}])))))
        flatten
        (remove nil?)))
 
@@ -86,23 +105,6 @@
                         (add-watch !codemirror-bindings :codemirror reset-bindings!)
                         #(do (remove-watch !global-bindings :global)
                              (remove-watch !codemirror-bindings :codemirror))))))
-
-(defonce !fn-names (atom {}))
-
-(defn get-var-name [demunged-name]
-  (let [parts (str/split demunged-name #"/")]
-    (if (seq (rest parts))
-      (str (str/join "." (drop-last parts)) "/" (last parts))
-      demunged-name)))
-
-(defn get-fn-name [f]
-  ;; TODO: Expose ns too when not default commands, e.g. view/toggle-command-bar
-  ;; TODO: Show binding only on first occurence of command, others don't show their (duplicate) bindings
-  (let [n (.-name f)]
-    (get @!fn-names n
-         (let [fn-name (last (str/split (demunge n) #"/")) #_(get-var-name (demunge n))]
-           (swap! !fn-names assoc n fn-name)
-           fn-name))))
 
 (defn get-pretty-spec [spec]
   (->> (str/split spec #"-")
@@ -145,7 +147,7 @@
     (kill-interactive!)
     (make-interactive! interactive-fn)))
 
-(defn cmd-view [{:as binding :keys [selected? show-binding?]}]
+(defn cmd-view [{:as binding :keys [name selected? show-binding?]}]
   (let [!el (hooks/use-ref nil)
         {:keys [spec run]} binding
         fn-name (.-name run)]
@@ -153,7 +155,7 @@
     [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
      {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
       :ref !el}
-     [:div (get-fn-name run)]
+     [:div name]
      (when show-binding?
        [:div.font-inter
         {:class (if selected? "text-indigo-300" "text-slate-300")}
@@ -230,7 +232,7 @@
   []
   (toggle-interactive! (fn [!state]
                          [pick-list !state {:placeholder "Search for commands…"
-                                            :fuzzy/match #(get-fn-name (:run %))
+                                            :fuzzy/match #(-> % :name name)
                                             :items (map
                                                     (fn [item]
                                                       (assoc item :item/view cmd-view))
