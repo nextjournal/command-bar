@@ -101,7 +101,7 @@
 
     (->> (drop-last bits)
          (map #(or (get MODS %)
-                   (throw (js/Error. (str "Unknown modifier '" mod
+                   (throw (js/Error. (str "Unknown modifier '" %
                                           "' in keystring '" keystring "'")))))
          (reduce
           (fn [mods mod] (assoc mods mod true))
