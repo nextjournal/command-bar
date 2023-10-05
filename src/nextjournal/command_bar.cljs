@@ -147,10 +147,8 @@
     (kill-interactive!)
     (make-interactive! interactive-fn)))
 
-(defn cmd-view [{:as binding :keys [name selected? show-binding?]}]
-  (let [!el (hooks/use-ref nil)
-        {:keys [spec run]} binding
-        fn-name (.-name run)]
+(defn cmd-view [{:keys [spec name selected? show-binding?]}]
+  (let [!el (hooks/use-ref nil)]
     (hooks/use-effect #(when selected? (.scrollIntoView @!el)) [selected?])
     [:div.flex.items-center.flex-shrink-0.font-mono.gap-1.relative.transition
      {:class (str "text-[12px] h-[26px] " (if selected? "text-indigo-300" "text-white"))
@@ -245,23 +243,27 @@
                                                          (run-binding selected-binding))}])))
 
 (def default-commands
-  {:toggle-command-bar {:binding "Alt-x" :run toggle-command-bar}
+  {:toggle-command-bar {:binding "Alt-x" :run toggle-command-bar :display? true}
    :kill-interactive {:binding "Ctrl-g" :run kill-interactive!}})
 
 (defn view [commands]
   (let [!el (hooks/use-ref nil)
+        all-commands (merge commands default-commands)
         {:keys [interactive]} @!state]
     (use-watches)
     (hooks/use-effect (fn []
-                        (let [all-commands (merge commands default-commands)]
-                          (doseq [[name cmd] all-commands]
-                            (global-set-key! name cmd))
-                          #(doseq [[name cmd] all-commands]
-                             (global-unset-key! name cmd)))))
+
+                        (doseq [[name cmd] all-commands]
+                          (global-set-key! name cmd))
+                        #(doseq [[name cmd] all-commands]
+                           (global-unset-key! name cmd))))
     [:div.bg-slate-950.px-4.flex.items-center
      {:ref !el}
      (if interactive
        [interactive !state]
-       [:div.text-slate-300 {:class "text-[12px]"}
-        (when-let [binding (get-binding-by-name :toggle-command-bar)]
-          [cmd-view (assoc binding :show-binding? true)])])]))
+       (into [:<>]
+             (->> all-commands
+                  (filter (comp :display? val))
+                  (keep (comp get-binding-by-name key))
+                  (map (fn [b] [:div.text-slate-300.mr-3 {:class "text-[12px]"}
+                                [cmd-view (assoc b :show-binding? true)]])))))]))
