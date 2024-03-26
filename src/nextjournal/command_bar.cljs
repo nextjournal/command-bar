@@ -1,8 +1,5 @@
 (ns nextjournal.command-bar
-  (:require ["@codemirror/state" :refer [StateField]]
-            ["@codemirror/view" :refer [keymap EditorView ViewPlugin]]
-            [applied-science.js-interop :as j]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [nextjournal.clerk.render.hooks :as hooks]
             [nextjournal.command-bar.fuzzy :as fuzzy]
             [nextjournal.command-bar.keybind :as keybind]
@@ -10,8 +7,8 @@
 
 (defonce !bindings (reagent/atom []))
 (defonce !global-bindings (reagent/atom []))
-(defonce !codemirror-bindings (reagent/atom []))
-(defonce !codemirror-view (reagent/atom nil))
+(defonce !local-bindings (reagent/atom []))
+(defonce !local-view (reagent/atom nil))
 (defonce !state (reagent/atom {}))
 
 (defn chord->spec [{:keys [shift ctrl meta alt button]}]
@@ -67,44 +64,13 @@
            (swap! !fn-names assoc n fn-name)
            fn-name))))
 
-(defn get-codemirror-bindings [^js state]
-  ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
-  (->> (.. state (facet keymap) flat (filter #(and (or (.-key %) (.-mac %)) (.-run %) (.. % -run -name))))
-       (map
-        (fn [binding]
-          (let [{:keys [key mac run shift]} (j/lookup binding)
-                key (or key mac)]
-            (concat
-             [{:codemirror? true
-               :spec (normalize-spec key)
-               :run run
-               :name (get-fn-name run)}]
-             (when shift
-               [{:codemirror? true
-                 :spec (normalize-spec (str "Shift-" key))
-                 :run shift
-                 :name (get-fn-name run)}])))))
-       flatten
-       (remove nil?)))
-
-(def extension
-  #js [(.-extension (.define StateField
-                             (j/lit {:create #(reset! !codemirror-bindings (get-codemirror-bindings %))
-                                     :update (fn [_value tr]
-                                               #(reset! !codemirror-bindings (get-codemirror-bindings (.-state tr))))})))
-       (.define ViewPlugin (fn [view]
-                             #js {:update (fn [^js update]
-                                            (when (and (.-focusChanged update) (.. update -view -hasFocus))
-                                              (reset! !codemirror-bindings (get-codemirror-bindings (.-state update)))
-                                              (reset! !codemirror-view (.-view update))))}))])
-
 (defn use-watches []
   (hooks/use-effect (fn []
-                      (let [reset-bindings! #(reset! !bindings (concat @!global-bindings @!codemirror-bindings))]
+                      (let [reset-bindings! #(reset! !bindings (concat @!global-bindings @!local-bindings))]
                         (add-watch !global-bindings :global reset-bindings!)
-                        (add-watch !codemirror-bindings :codemirror reset-bindings!)
+                        (add-watch !local-bindings :codemirror reset-bindings!)
                         #(do (remove-watch !global-bindings :global)
-                             (remove-watch !codemirror-bindings :codemirror))))))
+                             (remove-watch !local-bindings :codemirror))))))
 
 (defn get-pretty-spec [spec]
   (->> (str/split spec #"-")
@@ -127,16 +93,16 @@
                     "delete" "Del"} (str/lower-case k) (str/capitalize k))))
        (str/join " ")))
 
-(defn run-binding [{:keys [codemirror? run]}]
-  (if codemirror?
+(defn run-binding [{:keys [local? run]}]
+  (if local?
     (do
-      (.focus @!codemirror-view)
-      (js/requestAnimationFrame #(run @!codemirror-view)))
+      (.focus @!local-view)
+      (js/requestAnimationFrame #(run @!local-view)))
     (run)))
 
 (defn kill-interactive! []
   (swap! !state dissoc :interactive :input/query :pick-list/filtered-items :pick-list/selected-index)
-  (when-let [cm @!codemirror-view]
+  (when-let [cm @!local-view]
     (.focus cm)))
 
 (defn make-interactive! [interactive-fn]

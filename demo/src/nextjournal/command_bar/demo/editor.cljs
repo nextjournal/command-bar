@@ -1,8 +1,8 @@
 (ns nextjournal.command-bar.demo.editor
   (:require ["@codemirror/commands" :refer [history historyKeymap]]
             ["@codemirror/language" :refer [syntaxHighlighting HighlightStyle]]
-            ["@codemirror/state" :refer [Compartment EditorState]]
-            ["@codemirror/view" :as view :refer [EditorView]]
+            ["@codemirror/state" :refer [Compartment EditorState StateField]]
+            ["@codemirror/view" :as view :refer [keymap EditorView ViewPlugin]]
             ["@lezer/highlight" :refer [tags]]
             ["react" :as react]
             ["react-dom/client" :as react-client]
@@ -20,6 +20,37 @@
             [nextjournal.clojure-mode.test-utils :as test-utils]
             [reagent.core :as r]
             [shadow.resource :as rc]))
+
+(defn get-codemirror-bindings [^js state]
+  ;; Removing everything that doesn't have a fn name for now. Not sure about this yet.
+  (->> (.. state (facet keymap) flat (filter #(and (or (.-key %) (.-mac %)) (.-run %) (.. % -run -name))))
+       (map
+        (fn [binding]
+          (let [{:keys [key mac run shift]} (j/lookup binding)
+                key (or key mac)]
+            (concat
+             [{:local? true
+               :spec (command-bar/normalize-spec key)
+               :run run
+               :name (command-bar/get-fn-name run)}]
+             (when shift
+               [{:local? true
+                 :spec (command-bar/normalize-spec (str "Shift-" key))
+                 :run shift
+                 :name (command-bar/get-fn-name run)}])))))
+       flatten
+       (remove nil?)))
+
+(def extension
+  #js [(.-extension (.define StateField
+                             (j/lit {:create #(reset! command-bar/!local-bindings (get-codemirror-bindings %))
+                                     :update (fn [_value tr]
+                                               #(reset! command-bar/!local-bindings (get-codemirror-bindings (.-state tr))))})))
+       (.define ViewPlugin (fn [view]
+                             #js {:update (fn [^js update]
+                                            (when (and (.-focusChanged update) (.. update -view -hasFocus))
+                                              (reset! command-bar/!local-bindings (get-codemirror-bindings (.-state update)))
+                                              (reset! command-bar/!local-view (.-view update))))}))])
 
 (def highlight-style
   (.define HighlightStyle
@@ -95,7 +126,7 @@
                                  (test-utils/make-state
                                   #js [theme
                                        (history)
-                                       command-bar/extension
+                                       extension
                                        clojure-mode/default-extensions
                                        (syntaxHighlighting highlight-style)
                                        (eval-region/extension {:modifier "Meta"})
@@ -123,18 +154,18 @@
                      {:class "px-[3px] py-[1px] min-w-[16px]"} k]))
         (str/split (command-bar/get-pretty-spec spec) #" ")))
 
-(defn key-description [{:keys [codemirror? run spec var]}]
+(defn key-description [{:keys [local? run spec var]}]
   [:div.font-mono {:class "text-[12px]"}
    [:div
     [keys-view spec]
     " is bound to "
-    (when codemirror?
+    (when local?
       [:span "CodeMirror's "])
     [:span
      (when-let [ns (some-> var meta :ns)]
        [:span ns "/"])
      [:span.font-bold (command-bar/get-fn-name run)]]
-    (when codemirror?
+    (when local?
       " command")]
    (when-let [docs (some-> var meta :doc)]
      [:div.mt-3 docs])])
